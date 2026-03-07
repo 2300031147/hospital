@@ -5,7 +5,13 @@ from fastapi import Depends, HTTPException, status, Request
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-SECRET_KEY = os.getenv("AEROVHYN_JWT_SECRET", "AEROVHYN_EDGE_SUPER_SECRET_KEY_999")
+SECRET_KEY = os.getenv("AEROVHYN_JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "AEROVHYN_JWT_SECRET environment variable is not set. "
+        "Generate one with: openssl rand -hex 32"
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720  # Increased to 720 minutes (12 hours) for shift workers
 
@@ -18,6 +24,7 @@ class TokenData(BaseModel):
     role: Optional[str] = None # 'paramedic', 'hospital_admin', 'command_center'
     hospital_id: Optional[int] = None
     ambulance_id: Optional[int] = None
+    user_id: Optional[int] = None
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -59,7 +66,8 @@ async def verify_token(request: Request) -> TokenData:
         if username is None:
             raise credentials_exception
         ambulance_id: Optional[int] = payload.get("ambulance_id")
-        token_data = TokenData(username=username, role=role, hospital_id=hospital_id, ambulance_id=ambulance_id)
+        user_id: Optional[int] = payload.get("user_id")
+        token_data = TokenData(username=username, role=role, hospital_id=hospital_id, ambulance_id=ambulance_id, user_id=user_id)
         return token_data
     except JWTError:
         raise credentials_exception

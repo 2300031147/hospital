@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -27,6 +27,8 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "apiBase": "http://100.104.158.108:8000",
+      "wsBase": "ws://100.104.158.108:8000/ws",
       "eas": {
         "projectId": "551d4477-be1b-4065-86d6-4c86218fc73b"
       }
@@ -37,14 +39,6 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow AEROVHYN to track ambulance location in the background for live command center routing.",
           "isAndroidBackgroundLocationEnabled": true
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
         }
       ]
     ]

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
     StyleSheet, View, Text, TextInput, TouchableOpacity,
-    ScrollView, ActivityIndicator, Platform,
+    ScrollView, ActivityIndicator, Platform, Alert
 } from 'react-native';
 import { C, EMERGENCY_TYPES } from '../config';
 
@@ -15,13 +15,32 @@ export default function VitalsScreen({ user, currentLocation, onDispatch, loadin
     });
 
     const handleDispatch = () => {
-        onDispatch({
+        const payload = {
             heart_rate: parseInt(vitals.heart_rate) || 80,
             spo2: parseInt(vitals.spo2) || 98,
             systolic_bp: parseInt(vitals.systolic_bp) || 120,
             age: parseInt(vitals.age) || 30,
             emergency_type: vitals.emergency_type,
-        });
+        };
+
+        if (payload.heart_rate < 0 || payload.heart_rate > 300) {
+            Alert.alert('Validation Error', 'Invalid heart rate. Must be 0-300 BPM.');
+            return;
+        }
+        if (payload.spo2 < 0 || payload.spo2 > 100) {
+            Alert.alert('Validation Error', 'Invalid SpO₂. Must be 0-100%.');
+            return;
+        }
+        if (payload.systolic_bp < 0 || payload.systolic_bp > 300) {
+            Alert.alert('Validation Error', 'Invalid BP. Must be 0-300 mmHg.');
+            return;
+        }
+        if (payload.age < 0 || payload.age > 130) {
+            Alert.alert('Validation Error', 'Invalid age. Must be 0-130 yrs.');
+            return;
+        }
+
+        onDispatch(payload);
     };
 
     const vitalFields = [

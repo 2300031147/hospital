@@ -15,11 +15,6 @@ export default function LogsPage() {
 
     useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
-    // Auto-refresh every 10s
-    useEffect(() => {
-        const timer = setInterval(fetchLogs, 10000);
-        return () => clearInterval(timer);
-    }, [fetchLogs]);
 
     const typeColors = {
         dispatch: { bg: 'var(--color-info-dim)', color: 'var(--color-info)', icon: 'D' },

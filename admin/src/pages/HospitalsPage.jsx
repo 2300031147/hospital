@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { getHospitals, createHospital, updateHospital, deleteHospital, simulateOverload } from '../services/api';
 
 export default function HospitalsPage({ ws }) {
@@ -25,16 +26,16 @@ export default function HospitalsPage({ ws }) {
             await createHospital(form);
             setShowCreate(false);
             fetchData();
-        } catch (e) { alert(e.message); }
+        } catch (e) { toast.error(e.message); }
     };
 
     const handleDelete = async (id, name) => {
         if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
-        try { await deleteHospital(id); fetchData(); } catch (e) { alert(e.message); }
+        try { await deleteHospital(id); fetchData(); } catch (e) { toast.error(e.message); }
     };
 
     const handleOverload = async (id) => {
-        try { await simulateOverload(id); fetchData(); } catch (e) { alert(e.message); }
+        try { await simulateOverload(id); fetchData(); } catch (e) { toast.error(e.message); }
     };
 
     const DonutGauge = ({ current, total, color, label }) => {

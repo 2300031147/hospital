@@ -41,7 +41,7 @@ async function request(endpoint, options = {}) {
 
 // ─── Auth ───
 export async function login(username, password) {
-    const res = await fetch(`${API_BASE}/login`, {
+    const res = await fetch(`${API_BASE}/api/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -77,7 +77,7 @@ export async function getStoredAuth() {
 
 // ─── Dispatch ───
 export async function routeAmbulance(ambulanceLat, ambulanceLon, vitals) {
-    return request('/route', {
+    return request('/api/route', {
         method: 'POST',
         body: JSON.stringify({
             ambulance_lat: ambulanceLat,
@@ -104,7 +104,7 @@ export async function getOSRMRoute(fromLat, fromLon, toLat, toLon) {
 
 // ─── Ambulance Position ───
 export async function updateAmbulancePosition(id, lat, lon) {
-    return request(`/ambulances/${id}/position`, {
+    return request(`/api/ambulances/${id}/position`, {
         method: 'PUT',
         body: JSON.stringify({ lat, lon }),
     });
@@ -112,14 +112,14 @@ export async function updateAmbulancePosition(id, lat, lon) {
 
 // ─── Handoff ───
 export async function acknowledgeHandoff(hospitalId) {
-    return request(`/hospitals/${hospitalId}/acknowledge`, { method: 'POST' });
+    return request(`/api/hospitals/${hospitalId}/acknowledge`, { method: 'POST' });
 }
 
 export async function acceptPatient(hospitalId, ambulanceId) {
-    return request(`/hospitals/${hospitalId}/accept/${ambulanceId}`, { method: 'POST' });
+    return request(`/api/hospitals/${hospitalId}/accept/${ambulanceId}`, { method: 'POST' });
 }
 
 // ─── Health ───
 export async function healthCheck() {
-    return request('/health');
+    return request('/api/health');
 }

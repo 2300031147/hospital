@@ -3,7 +3,7 @@ AEROVHYN — Pydantic Models
 Request/response schemas for the API.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional
 from enum import Enum
 
@@ -47,8 +47,8 @@ class PatientVitals(BaseModel):
 
 class HospitalCreate(BaseModel):
     name: str
-    lat: float
-    lon: float
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
     icu_beds: int = 0
     total_icu_beds: int = 10
     ventilators: int = 0
@@ -81,19 +81,19 @@ class HospitalUpdate(BaseModel):
 
 class AmbulanceCreate(BaseModel):
     name: Optional[str] = "AMB-001"
-    lat: float
-    lon: float
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
     patient_vitals: Optional[PatientVitals] = None
 
 
 class AmbulancePositionUpdate(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
 
 
 class RouteRequest(BaseModel):
-    ambulance_lat: float
-    ambulance_lon: float
+    ambulance_lat: float = Field(..., ge=-90, le=90)
+    ambulance_lon: float = Field(..., ge=-180, le=180)
     vitals: PatientVitals
 
 
@@ -168,6 +168,24 @@ class UserCreate(BaseModel):
     role: str = "paramedic"
     ambulance_id: Optional[str] = None
     hospital_id: Optional[int] = None
+    
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain an uppercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain a digit')
+        return v
+
+    @validator('username')
+    def username_valid(cls, v):
+        if len(v) < 3:
+            raise ValueError('Username must be at least 3 characters')
+        if not v.replace('_', '').replace('-', '').isalnum():
+            raise ValueError('Username must be alphanumeric')
+        return v
 
 
 class UserUpdate(BaseModel):

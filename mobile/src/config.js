@@ -3,9 +3,11 @@
  * Centralized config for colors, API endpoints, and constants.
  */
 
+import Constants from 'expo-constants';
+
 // ─── API Endpoints ───
-export const API_BASE = 'http://100.104.158.108:8000';
-export const WS_BASE = 'ws://100.104.158.108:8000/ws';
+export const API_BASE = Constants.expoConfig?.extra?.apiBase ?? 'https://api.yourdomain.com';
+export const WS_BASE = Constants.expoConfig?.extra?.wsBase ?? 'wss://api.yourdomain.com/ws';
 
 // ─── Storage Keys ───
 export const AUTH_TOKEN_KEY = '@aerovhyn_token';

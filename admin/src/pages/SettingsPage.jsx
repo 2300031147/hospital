@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { getSettings, updateSettings } from '../services/api';
 
 export default function SettingsPage() {
@@ -20,7 +21,7 @@ export default function SettingsPage() {
             await updateSettings(settings);
             setSaved(true);
             setTimeout(() => setSaved(false), 3000);
-        } catch (e) { alert(e.message); }
+        } catch (e) { toast.error(e.message); }
         finally { setSaving(false); }
     };
 

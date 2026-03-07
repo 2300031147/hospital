@@ -1,5 +1,5 @@
 """
-AEROVHYN — Blockchain Audit Trail
+AEROVHYN — Tamper-Evident Audit Log
 SHA-256 hash chain for immutable routing decision records.
 Each routing decision is a "block" linked to the previous one by hash.
 """
@@ -41,7 +41,7 @@ async def _add_genesis_block(db):
     """Create the genesis (first) block."""
     block_data = {
         "event": "SYSTEM_GENESIS",
-        "message": "AEROVHYN Blockchain Audit Trail initialized",
+        "message": "AEROVHYN Tamper-Evident Audit Log initialized",
         "system_version": "2.0.0",
     }
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -169,7 +169,7 @@ async def verify_chain() -> dict:
             "blocks_checked": blocks_checked,
             "chain_length": len(rows),
             "latest_hash": rows[-1]["hash"],
-            "message": "✅ Blockchain integrity verified — all hashes valid",
+            "message": "✅ Audit Log integrity verified — all hashes valid",
         }
     finally:
         await db.close()

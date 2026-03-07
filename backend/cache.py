@@ -1,92 +1,130 @@
 """
-AEROVHYN — In-Memory TTL Cache
-Redis-compatible interface with TTL expiration.
+AEROVHYN — In-Memory / Redis Async Cache
 Provides caching for frequently accessed data like hospital lists and analytics.
+Automatically uses Redis if REDIS_URL is presented, otherwise an asyncio in-memory fallback.
 """
 
 import time
 import asyncio
+import os
+import json
 from typing import Any, Optional
 from functools import wraps
 
+REDIS_URL = os.getenv("REDIS_URL")
 
-class TTLCache:
-    """Simple in-memory cache with TTL (time-to-live) expiration."""
+try:
+    import redis.asyncio as redis
+except ImportError:
+    redis = None
 
+class AsyncTTLCache:
+    """Async cache interface backing into either in-memory dict or Redis."""
+    
     def __init__(self, default_ttl: int = 30):
-        self._store: dict[str, tuple[Any, float]] = {}
         self._default_ttl = default_ttl
+        self._store = {}
         self._cleanup_task = None
+        self._redis = None
+        if REDIS_URL and redis:
+            self._redis = redis.from_url(REDIS_URL, decode_responses=True)
 
-    def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Optional[Any]:
         """Get value if key exists and hasn't expired."""
-        if key in self._store:
-            value, expires_at = self._store[key]
-            if time.time() < expires_at:
-                return value
-            else:
-                del self._store[key]
-        return None
+        if self._redis:
+            val = await self._redis.get(key)
+            if val:
+                return json.loads(val)
+            return None
+        else:
+            if key in self._store:
+                value, expires_at = self._store[key]
+                if time.time() < expires_at:
+                    return value
+                else:
+                    del self._store[key]
+            return None
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None):
-        """Set value with TTL (seconds). Uses default TTL if not specified."""
-        expiry = time.time() + (ttl if ttl is not None else self._default_ttl)
-        self._store[key] = (value, expiry)
+    async def set(self, key: str, value: Any, ttl: Optional[int] = None):
+        """Set value with TTL (seconds)."""
+        expiry_sec = ttl if ttl is not None else self._default_ttl
+        if self._redis:
+            await self._redis.set(key, json.dumps(value), ex=expiry_sec)
+        else:
+            expiry = time.time() + expiry_sec
+            self._store[key] = (value, expiry)
 
-    def delete(self, key: str):
+    async def delete(self, key: str):
         """Delete a key from the cache."""
-        self._store.pop(key, None)
+        if self._redis:
+            await self._redis.delete(key)
+        else:
+            self._store.pop(key, None)
 
-    def invalidate_prefix(self, prefix: str):
+    async def invalidate_prefix(self, prefix: str):
         """Delete all keys matching a prefix."""
-        keys_to_delete = [k for k in self._store if k.startswith(prefix)]
-        for k in keys_to_delete:
-            del self._store[k]
+        if self._redis:
+            keys = await self._redis.keys(f"{prefix}*")
+            if keys:
+                await self._redis.delete(*keys)
+        else:
+            keys_to_delete = [k for k in self._store if k.startswith(prefix)]
+            for k in keys_to_delete:
+                del self._store[k]
 
-    def clear(self):
+    async def clear(self):
         """Clear all cached data."""
-        self._store.clear()
+        if self._redis:
+            await self._redis.flushdb()
+        else:
+            self._store.clear()
 
-    def stats(self) -> dict:
+    async def stats(self) -> dict:
         """Return cache statistics."""
-        now = time.time()
-        total = len(self._store)
-        expired = sum(1 for _, (_, exp) in self._store.items() if now >= exp)
-        return {
-            "total_keys": total,
-            "expired_keys": expired,
-            "active_keys": total - expired,
-        }
+        if self._redis:
+            info = await self._redis.info()
+            dbsize = await self._redis.dbsize()
+            return {
+                "total_keys": dbsize,
+                "redis_used_memory_human": info.get('used_memory_human', '0B'),
+                "backend": "redis"
+            }
+        else:
+            now = time.time()
+            total = len(self._store)
+            expired = sum(1 for _, (_, exp) in self._store.items() if now >= exp)
+            return {
+                "total_keys": total,
+                "expired_keys": expired,
+                "active_keys": total - expired,
+                "backend": "memory"
+            }
 
     async def cleanup_expired(self):
-        """Background task to periodically clean expired entries."""
+        """Background task to periodically clean expired entries (only for memory cache)."""
+        if self._redis:
+            return # Redis natively handles expiration
+            
         while True:
             await asyncio.sleep(60)
             now = time.time()
             expired_keys = [k for k, (_, exp) in self._store.items() if now >= exp]
             for k in expired_keys:
                 del self._store[k]
-            if expired_keys:
-                print(f"[CACHE] Cleaned {len(expired_keys)} expired entries")
 
     def start_cleanup(self):
         """Start background cleanup task."""
-        if self._cleanup_task is None:
+        if not self._redis and self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self.cleanup_expired())
 
 
 # Singleton cache instance
-cache = TTLCache(default_ttl=15)
+cache = AsyncTTLCache(default_ttl=15)
 
 
 def cached(key_template: str, ttl: int = 15):
     """
     Decorator to cache async function results.
-    
-    Usage:
-        @cached("hospitals:all", ttl=10)
-        async def get_hospitals():
-            ...
     """
     def decorator(func):
         @wraps(func)
@@ -94,16 +132,13 @@ def cached(key_template: str, ttl: int = 15):
             cache_key = key_template
             
             # Check cache first
-            result = cache.get(cache_key)
+            result = await cache.get(cache_key)
             if result is not None:
                 return result
 
             # Execute function and cache result
             result = await func(*args, **kwargs)
-            cache.set(cache_key, result, ttl)
+            await cache.set(cache_key, result, ttl)
             return result
-
-        # Expose invalidation helper
-        wrapper.invalidate = lambda: cache.delete(key_template)
         return wrapper
     return decorator

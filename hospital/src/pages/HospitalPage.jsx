@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { getHospital, getAmbulances, acknowledgeHandoff, acceptPatient, releaseBed, updateHospital } from '../services/api';
 
 export default function HospitalPage({ ws, user }) {
@@ -27,11 +28,6 @@ export default function HospitalPage({ ws, user }) {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Auto-refresh every 15s
-    useEffect(() => {
-        const timer = setInterval(fetchData, 15000);
-        return () => clearInterval(timer);
-    }, [fetchData]);
 
     // WebSocket real-time updates
     useEffect(() => {
@@ -61,7 +57,7 @@ export default function HospitalPage({ ws, user }) {
     }, [ws, hospitalId, fetchData]);
 
     const handleAcknowledge = async (hId) => {
-        try { await acknowledgeHandoff(hId); } catch (e) { alert(e.message); }
+        try { await acknowledgeHandoff(hId); } catch (e) { toast.error(e.message); }
     };
 
     const handleAccept = async (ambId) => {
@@ -69,11 +65,11 @@ export default function HospitalPage({ ws, user }) {
             await acceptPatient(hospitalId, ambId);
             setHandoffs(prev => prev.filter(h => h.ambulance_id !== ambId));
             fetchData();
-        } catch (e) { alert(e.message); }
+        } catch (e) { toast.error(e.message); }
     };
 
     const handleRelease = async () => {
-        try { await releaseBed(hospitalId); fetchData(); } catch (e) { alert(e.message); }
+        try { await releaseBed(hospitalId); fetchData(); } catch (e) { toast.error(e.message); }
     };
 
     const handleEditClick = () => {
@@ -93,7 +89,7 @@ export default function HospitalPage({ ws, user }) {
             setShowEdit(false);
             fetchData();
         } catch (err) {
-            alert(err.message || 'Failed to update details');
+            toast.error(err.message || 'Failed to update details');
         } finally {
             setSaving(false);
         }

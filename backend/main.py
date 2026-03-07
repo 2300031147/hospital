@@ -13,6 +13,9 @@ import asyncio
 import os
 import time
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from database import init_db, seed_data, get_db, verify_password, hash_password
 from models import (
@@ -38,11 +41,18 @@ from models import (
 )
 from engine import classify_severity, rank_hospitals, haversine_distance, compute_eta, get_prep_instructions
 from websocket_manager import manager
-from blockchain import init_blockchain_table, add_block, get_chain, verify_chain
+from audit_log import init_blockchain_table, add_block, get_chain, verify_chain
 from notification_service import dispatch_critical_alerts
 from auth import require_hospital_admin, require_paramedic, require_command_center, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from middleware import RequestTimingMiddleware, RequestLoggingMiddleware, GlobalExceptionMiddleware
+from middleware import RequestIDMiddleware, RequestTimingMiddleware, RequestLoggingMiddleware, GlobalExceptionMiddleware, SecurityHeadersMiddleware
 from cache import cache
+from logger import get_logger
+
+log = get_logger("aerovhyn.api")
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 app = FastAPI(
     title="AEROVHYN",
@@ -50,21 +60,27 @@ app = FastAPI(
     version="2.1.0",
 )
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Use environment variables for allowed origins, defaulting to standard dev ports
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=".*",
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Request middleware stack (order matters — outermost first)
 app.add_middleware(GlobalExceptionMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RequestTimingMiddleware)
+app.add_middleware(RequestIDMiddleware)  # Must be innermost so request_id is set first
 
 # Simple in-memory rate limit store for IP locking
 failed_logins = {}
@@ -81,7 +97,7 @@ async def startup():
     await init_blockchain_table()
     asyncio.create_task(cleanup_stale_reservations_loop())
     cache.start_cleanup()
-    print("[AEROVHYN] v2.1 started — middleware + cache active")
+    log.info("AEROVHYN v2.1 started", extra={"middleware": "active", "cache": "active"})
 
 
 # --- Authentication ---
@@ -91,6 +107,7 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/auth/token")
+@limiter.limit("5/minute")
 async def login_for_access_token(req: LoginRequest, request: Request, response: Response):
     """
     Authenticate an ambulance crew member (paramedic/driver).
@@ -129,6 +146,17 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
     if client_ip in failed_logins:
         del failed_logins[client_ip]
 
+    ambulance_db_id = None
+    if user["role"] == "paramedic" and user["ambulance_id"]:
+        try:
+            db_amb = await get_db()
+            c_amb = await db_amb.execute("SELECT id FROM ambulances WHERE name = ?", (user["ambulance_id"],))
+            amb_row = await c_amb.fetchone()
+            if amb_row:
+                ambulance_db_id = amb_row["id"]
+        finally:
+            await db_amb.close()
+
     from datetime import timedelta
     access_token = create_access_token(
         data={
@@ -136,7 +164,7 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
             "role": user["role"],
             "hospital_id": user["hospital_id"],
             "user_id": user["id"],
-            "full_name": user["full_name"],
+            "ambulance_id": ambulance_db_id,
         },
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
@@ -147,8 +175,8 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        samesite="lax",
-        secure=False,  # Set to True in production with HTTTPS
+        samesite="strict",
+        secure=True,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -199,6 +227,8 @@ async def create_user(user: UserCreate, token=Depends(require_command_center)):
     finally:
         await db.close()
 
+ALLOWED_USER_FIELDS = {'full_name', 'role', 'ambulance_id', 'hospital_id'}
+
 @app.put("/api/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: int, update: UserUpdate, token=Depends(require_command_center)):
     db = await get_db()
@@ -206,6 +236,8 @@ async def update_user(user_id: int, update: UserUpdate, token=Depends(require_co
         fields = []
         values = []
         for key, val in update.model_dump(exclude_unset=True).items():
+            if key not in ALLOWED_USER_FIELDS:
+                raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
             fields.append(f"{key} = ?")
             values.append(val)
             
@@ -388,13 +420,13 @@ async def cleanup_stale_reservations_loop():
                                     "soft_reserve": hospital.soft_reserve,
                                 })
                     except Exception as e:
-                        print(f"Cleanup parse error: {e}")
+                        log.error("Cleanup parse error", extra={"error": str(e), "ambulance_id": row.get("id")})
                         
                 await db.commit()
             finally:
                 await db.close()
         except Exception as e:
-            print(f"Cleanup loop error: {e}")
+            log.error("Cleanup loop error", extra={"error": str(e)})
 
 
 async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id: int, new_severity: SeverityResult, new_distance_km: float):
@@ -527,7 +559,7 @@ async def health():
         "system": "AEROVHYN",
         "version": "2.1.0",
         "ws_stats": manager.get_stats(),
-        "cache_stats": cache.stats(),
+        "cache_stats": await cache.stats(),
     }
 
 
@@ -542,8 +574,8 @@ async def classify(vitals: PatientVitals):
 
 @app.get("/api/hospitals")
 async def get_hospitals():
-    # Check cache first (10s TTL — hospitals don't change that fast)
-    cached_result = cache.get("hospitals:all")
+    # Check cache first (10s TTL - hospitals don't change that fast)
+    cached_result = await cache.get("hospitals:all")
     if cached_result is not None:
         return cached_result
 
@@ -552,7 +584,7 @@ async def get_hospitals():
         cursor = await db.execute("SELECT * FROM hospitals ORDER BY name")
         rows = await cursor.fetchall()
         result = [row_to_hospital(r) for r in rows]
-        cache.set("hospitals:all", result, ttl=10)
+        await cache.set("hospitals:all", result, ttl=10)
         return result
     finally:
         await db.close()
@@ -600,12 +632,18 @@ async def create_hospital(hospital: HospitalCreate, token=Depends(require_comman
         await db.commit()
         
         c2 = await db.execute("SELECT * FROM hospitals WHERE id = ?", (h_id,))
-        new_row = await c2.fetchone()
-        cache.invalidate_prefix("hospitals:")
+        await db.commit()
+        await cache.invalidate_prefix("hospitals:")
         return row_to_hospital(new_row)
     finally:
         await db.close()
 
+
+ALLOWED_HOSPITAL_FIELDS = {
+    'icu_beds', 'total_icu_beds', 'ventilators', 
+    'total_ventilators', 'specialists', 'current_load',
+    'max_capacity', 'equipment_score', 'status'
+}
 
 @app.put("/api/hospitals/{hospital_id}")
 async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depends(require_hospital_admin)):
@@ -618,6 +656,8 @@ async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depend
         fields = []
         values = []
         for key, val in update.model_dump(exclude_none=True).items():
+            if key not in ALLOWED_HOSPITAL_FIELDS:
+                raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
             if key == "specialists":
                 fields.append("specialists = ?")
                 values.append(json.dumps(val))
@@ -683,7 +723,8 @@ async def delete_hospital(hospital_id: int, token=Depends(require_command_center
 # --- Routing (Core Pipeline) ---
 
 @app.post("/api/route", response_model=RouteResponse)
-async def route_ambulance(req: RouteRequest, background_tasks: BackgroundTasks, token=Depends(require_paramedic)):
+@limiter.limit("30/minute")
+async def route_ambulance(req: RouteRequest, request: Request, background_tasks: BackgroundTasks, token=Depends(require_paramedic)):
     severity = classify_severity(req.vitals)
 
     db = await get_db()
@@ -833,7 +874,7 @@ async def route_ambulance(req: RouteRequest, background_tasks: BackgroundTasks, 
 # --- Hospital Acknowledge Handoff ---
 
 @app.post("/api/hospitals/{hospital_id}/acknowledge")
-async def acknowledge_handoff(hospital_id: int):
+async def acknowledge_handoff(hospital_id: int, token=Depends(require_hospital_admin)):
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
@@ -910,7 +951,7 @@ async def accept_patient(hospital_id: int, ambulance_id: int, token=Depends(requ
         await db.close()
     
     # Invalidate hospital cache after acceptance
-    cache.invalidate_prefix("hospitals:")
+    await cache.invalidate_prefix("hospitals:")
 
     # Broadcast acceptance to network
     await manager.broadcast({
@@ -987,6 +1028,18 @@ async def discharge_patient(hospital_id: int, token=Depends(require_hospital_adm
 async def complete_ambulance_run(ambulance_id: int, token=Depends(require_paramedic)):
     db = await get_db()
     try:
+        # Verify this ambulance belongs to this paramedic
+        cursor = await db.execute("SELECT * FROM ambulances WHERE id = ?", (ambulance_id,))
+        amb = await cursor.fetchone()
+        if not amb:
+            raise HTTPException(status_code=404, detail="Ambulance not found")
+            
+        if token.role != "command_center" and token.ambulance_id and amb["id"] != token.ambulance_id:
+            raise HTTPException(
+                status_code=403, 
+                detail="You can only complete your own run"
+            )
+
         await db.execute(
             "UPDATE ambulances SET status = 'idle', destination_hospital_id = NULL, patient_vitals = '{}', eta_minutes = 0 WHERE id = ?",
             (ambulance_id,)
@@ -1027,6 +1080,11 @@ async def create_ambulance(amb: AmbulanceCreate, token=Depends(require_paramedic
 
 @app.put("/api/ambulances/{ambulance_id}/position")
 async def update_ambulance_position(ambulance_id: int, pos: AmbulancePositionUpdate, token=Depends(require_paramedic)):
+    if token.role != "command_center" and token.ambulance_id != ambulance_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only update your own ambulance"
+        )
     db = await get_db()
     try:
         await db.execute(
@@ -1105,15 +1163,15 @@ async def get_analytics(token=Depends(require_command_center)):
         await db.close()
 
 
-# --- Blockchain ---
+# --- Audit Log ---
 
-@app.get("/api/blockchain")
+@app.get("/api/audit-log")
 async def get_blockchain(limit: int = 50, token=Depends(require_command_center)):
     chain = await get_chain(limit)
     return chain
 
 
-@app.get("/api/blockchain/verify")
+@app.get("/api/audit-log/verify")
 async def verify_blockchain(token=Depends(require_command_center)):
     result = await verify_chain()
     return result
@@ -1296,7 +1354,7 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
 
 
 @app.post("/api/simulate/reset")
-async def simulate_reset():
+async def simulate_reset(token=Depends(require_command_center)):
     """Reset all data and reseed."""
     db = await get_db()
     try:

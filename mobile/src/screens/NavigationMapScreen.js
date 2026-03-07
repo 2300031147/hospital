@@ -19,13 +19,18 @@ export default function NavigationMapScreen({
 
     // Diversion alert animation
     useEffect(() => {
+        let anim;
         if (diversionAlert) {
-            Animated.sequence([
+            anim = Animated.sequence([
                 Animated.timing(diversionAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
                 Animated.delay(6000),
                 Animated.timing(diversionAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
-            ]).start();
+            ]);
+            anim.start();
         }
+        return () => {
+            if (anim) anim.stop();
+        };
     }, [diversionAlert]);
 
     // Fit map to show both ambulance and hospital

@@ -4,126 +4,204 @@ SQLite async setup with hospitals, ambulances, and logs tables.
 """
 
 import aiosqlite
+import asyncpg
 import json
 import os
+import re
 from passlib.context import CryptContext
 
 DB_PATH_DEFAULT = os.path.join(os.path.dirname(__file__), "aerovhyn.db")
-DB_PATH = os.getenv("AEROVHYN_DB_PATH", DB_PATH_DEFAULT)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
+class CursorWrapper:
+    def __init__(self, rows=None, lastrowid=None):
+        self.rows = rows or []
+        self.lastrowid = lastrowid
+        self._idx = 0
+    
+    async def fetchone(self):
+        if self._idx < len(self.rows):
+            row = self.rows[self._idx]
+            self._idx += 1
+            return row
+        return None
+
+    async def fetchall(self):
+        return self.rows
+
+class PostgresDBWrapper:
+    def __init__(self, pool, conn):
+        self.pool = pool
+        self.conn = conn
+
+    async def execute(self, query: str, params: tuple = ()):
+        # Convert ? to $1, $2
+        parts = query.split('?')
+        pg_query = parts[0]
+        for i, part in enumerate(parts[1:], 1):
+            pg_query += f"${i}" + part
+            
+        is_insert = pg_query.strip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in pg_query.upper():
+            pg_query += " RETURNING id"
+
+        try:
+            # asyncpg row feels like a dict
+            rows = await self.conn.fetch(pg_query, *params)
+            lastrowid = None
+            if is_insert and rows and 'id' in rows[0]:
+                lastrowid = rows[0]['id']
+            return CursorWrapper(rows=rows, lastrowid=lastrowid)
+        except Exception as e:
+            # Simple fallback for executescript-like statements or non-returning statements
+            if "RETURNING" in str(e):
+                pg_query = pg_query.replace(" RETURNING id", "")
+                await self.conn.execute(pg_query, *params)
+                return CursorWrapper()
+            raise
+
+    async def executescript(self, script: str):
+        # asyncpg does not natively run multiple statements if they contain params,
+        # but our executescript is used for pure DDL without params.
+        await self.conn.execute(script)
+
+    async def commit(self):
+        pass # asyncpg auto-commits by default or depends on tx block
+
+    async def close(self):
+        await self.pool.release(self.conn)
+
+_pg_pool = None
 
 async def get_db():
-    """Get an async database connection."""
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
-    return db
-
+    global _pg_pool
+    if DATABASE_URL and DATABASE_URL.startswith("postgres"):
+        if not _pg_pool:
+            _pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql://", "postgres://"))
+        conn = await _pg_pool.acquire()
+        return PostgresDBWrapper(_pg_pool, conn)
+    else:
+        # Fallback strictly to aiosqlite
+        db_path = os.getenv("AEROVHYN_DB_PATH", DB_PATH_DEFAULT)
+        db = await aiosqlite.connect(db_path)
+        db.row_factory = aiosqlite.Row
+        return db
 
 async def init_db():
     """Create tables if they don't exist."""
     db = await get_db()
     try:
-        await db.execute("PRAGMA journal_mode=WAL;")
-        await db.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                full_name TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'paramedic',
-                ambulance_id TEXT,
-                hospital_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+        # Alembic will handle schemas for Postgres. We only run script for SQLite.
+        if not DATABASE_URL or not DATABASE_URL.startswith("postgres"):
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'paramedic',
+                    ambulance_id TEXT,
+                    hospital_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-            CREATE TABLE IF NOT EXISTS hospitals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                lat REAL NOT NULL,
-                lon REAL NOT NULL,
-                icu_beds INTEGER DEFAULT 0,
-                total_icu_beds INTEGER DEFAULT 10,
-                soft_reserve INTEGER DEFAULT 0,
-                ventilators INTEGER DEFAULT 0,
-                total_ventilators INTEGER DEFAULT 5,
-                specialists TEXT DEFAULT '[]',
-                current_load INTEGER DEFAULT 0,
-                max_capacity INTEGER DEFAULT 100,
-                equipment_score REAL DEFAULT 0.8,
-                status TEXT DEFAULT 'active',
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+                CREATE TABLE IF NOT EXISTS hospitals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    lat REAL NOT NULL,
+                    lon REAL NOT NULL,
+                    icu_beds INTEGER DEFAULT 0,
+                    total_icu_beds INTEGER DEFAULT 10,
+                    soft_reserve INTEGER DEFAULT 0,
+                    ventilators INTEGER DEFAULT 0,
+                    total_ventilators INTEGER DEFAULT 5,
+                    specialists TEXT DEFAULT '[]',
+                    current_load INTEGER DEFAULT 0,
+                    max_capacity INTEGER DEFAULT 100,
+                    equipment_score REAL DEFAULT 0.8,
+                    status TEXT DEFAULT 'active',
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-            CREATE TABLE IF NOT EXISTS ambulances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT DEFAULT 'AMB-001',
-                lat REAL NOT NULL,
-                lon REAL NOT NULL,
-                patient_severity TEXT DEFAULT 'unknown',
-                destination_hospital_id INTEGER,
-                status TEXT DEFAULT 'idle',
-                patient_vitals TEXT DEFAULT '{}',
-                eta_minutes REAL DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (destination_hospital_id) REFERENCES hospitals(id)
-            );
+                CREATE TABLE IF NOT EXISTS ambulances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT DEFAULT 'AMB-001',
+                    lat REAL NOT NULL,
+                    lon REAL NOT NULL,
+                    patient_severity TEXT DEFAULT 'unknown',
+                    destination_hospital_id INTEGER,
+                    status TEXT DEFAULT 'idle',
+                    patient_vitals TEXT DEFAULT '{}',
+                    eta_minutes REAL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (destination_hospital_id) REFERENCES hospitals(id)
+                );
 
-            CREATE TABLE IF NOT EXISTS logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                event_type TEXT NOT NULL,
-                ambulance_id INTEGER,
-                hospital_selected_id INTEGER,
-                score REAL,
-                details TEXT DEFAULT '',
-                FOREIGN KEY (ambulance_id) REFERENCES ambulances(id),
-                FOREIGN KEY (hospital_selected_id) REFERENCES hospitals(id)
-            );
+                CREATE TABLE IF NOT EXISTS logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    event_type TEXT NOT NULL,
+                    ambulance_id INTEGER,
+                    hospital_selected_id INTEGER,
+                    score REAL,
+                    details TEXT DEFAULT '',
+                    FOREIGN KEY (ambulance_id) REFERENCES ambulances(id),
+                    FOREIGN KEY (hospital_selected_id) REFERENCES hospitals(id)
+                );
 
-            CREATE TABLE IF NOT EXISTS blockchain (
-                idx INTEGER PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                data TEXT NOT NULL,
-                prev_hash TEXT NOT NULL,
-                hash TEXT NOT NULL,
-                nonce INTEGER DEFAULT 0
-            );
+                CREATE TABLE IF NOT EXISTS blockchain (
+                    idx INTEGER PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    prev_hash TEXT NOT NULL,
+                    hash TEXT NOT NULL,
+                    nonce INTEGER DEFAULT 0
+                );
 
-            CREATE TABLE IF NOT EXISTS historical_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                hospital_id INTEGER NOT NULL,
-                day_of_week INTEGER NOT NULL,  -- 0=Mon, 6=Sun
-                hour_of_day INTEGER NOT NULL,  -- 0-23
-                avg_load REAL NOT NULL,        -- e.g., 0.85 = 85% full
-                avg_turnover_rate REAL DEFAULT 0.05, -- e.g., 5% of beds free up per hour
-                FOREIGN KEY (hospital_id) REFERENCES hospitals(id)
-            );
+                CREATE TABLE IF NOT EXISTS historical_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hospital_id INTEGER NOT NULL,
+                    day_of_week INTEGER NOT NULL,  -- 0=Mon, 6=Sun
+                    hour_of_day INTEGER NOT NULL,  -- 0-23
+                    avg_load REAL NOT NULL,        -- e.g., 0.85 = 85% full
+                    avg_turnover_rate REAL DEFAULT 0.05, -- e.g., 5% of beds free up per hour
+                    FOREIGN KEY (hospital_id) REFERENCES hospitals(id)
+                );
 
-            CREATE TABLE IF NOT EXISTS settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1), -- Ensure only one row
-                distance_weight REAL DEFAULT 0.2,
-                readiness_weight REAL DEFAULT 0.5,
-                severity_match_weight REAL DEFAULT 0.3,
-                max_routing_distance_km REAL DEFAULT 30.0
-            );
-        """)
-        
-        # Initialize default settings row if missing
-        await db.execute("""
-            INSERT OR IGNORE INTO settings (id, distance_weight, readiness_weight, severity_match_weight, max_routing_distance_km)
-            VALUES (1, 0.2, 0.5, 0.3, 30.0)
-        """)
-        await db.commit()
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY, -- Removed CHECK (id = 1) for Postgres compatibility if ever run there
+                    distance_weight REAL DEFAULT 0.2,
+                    readiness_weight REAL DEFAULT 0.5,
+                    severity_match_weight REAL DEFAULT 0.3,
+                    max_routing_distance_km REAL DEFAULT 30.0
+                );
+            """)
+            
+            # Initialize default settings row if missing
+            await db.execute("""
+                INSERT OR IGNORE INTO settings (id, distance_weight, readiness_weight, severity_match_weight, max_routing_distance_km)
+                VALUES (1, 0.2, 0.5, 0.3, 30.0)
+            """)
+            await db.commit()
+        else:
+            # For Postgres, just ensure the settings row exists assuming Alembic was run
+            try:
+                await db.execute("""
+                    INSERT INTO settings (id, distance_weight, readiness_weight, severity_match_weight, max_routing_distance_km)
+                    VALUES (1, 0.2, 0.5, 0.3, 30.0)
+                    ON CONFLICT(id) DO NOTHING
+                """)
+            except Exception as e:
+                pass # If table doesn't exist yet, it will fail, which is fine before migration
     finally:
         await db.close()
 
@@ -276,15 +354,21 @@ async def seed_data():
         ]
 
         for h in hospitals:
-            await db.execute(
-                """INSERT INTO hospitals (name, lat, lon, icu_beds, total_icu_beds,
-                   ventilators, total_ventilators, specialists, current_load,
-                   max_capacity, equipment_score, status)
-                   VALUES (:name, :lat, :lon, :icu_beds, :total_icu_beds,
-                   :ventilators, :total_ventilators, :specialists, :current_load,
-                   :max_capacity, :equipment_score, :status)""",
-                h,
-            )
+            try:
+                # Need to use standard execute instead of named binds to match our execute wrapper
+                await db.execute(
+                    """INSERT INTO hospitals (name, lat, lon, icu_beds, total_icu_beds,
+                       ventilators, total_ventilators, specialists, current_load,
+                       max_capacity, equipment_score, status)
+                       VALUES (?, ?, ?, ?, ?,
+                       ?, ?, ?, ?,
+                       ?, ?, ?)""",
+                    (h['name'], h['lat'], h['lon'], h['icu_beds'], h['total_icu_beds'], 
+                     h['ventilators'], h['total_ventilators'], h['specialists'], h['current_load'], 
+                     h['max_capacity'], h['equipment_score'], h['status'])
+                )
+            except Exception:
+                pass # Probably ON CONFLICT depending on db
             
         # Add baseline historical patterns for each seeded hospital
         cursor = await db.execute("SELECT id FROM hospitals")

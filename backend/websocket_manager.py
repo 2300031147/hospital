@@ -8,6 +8,9 @@ import asyncio
 import time
 from collections import defaultdict
 from fastapi import WebSocket
+from logger import get_logger
+
+log = get_logger("aerovhyn.ws")
 
 
 class ConnectionManager:
@@ -54,7 +57,7 @@ class ConnectionManager:
 
         # Log connection
         role_str = role or "unknown"
-        print(f"[WS] +{role_str}:{username} connected ({len(self.active_connections)} total)")
+        log.info(f"WS connected", extra={"role": role_str, "username": username, "total": len(self.active_connections)})
 
     def disconnect(self, websocket: WebSocket):
         """Remove a WebSocket connection."""
@@ -62,7 +65,7 @@ class ConnectionManager:
             if conn_info["ws"] is websocket:
                 self.active_connections.remove(conn_info)
                 self._metrics["total_disconnects"] += 1
-                print(f"[WS] -{conn_info.get('role', '?')}:{conn_info.get('username', '?')} disconnected ({len(self.active_connections)} total)")
+                log.info(f"WS disconnected", extra={"role": conn_info.get('role', '?'), "username": conn_info.get('username', '?'), "total": len(self.active_connections)})
                 break
 
     async def broadcast(self, message: dict):

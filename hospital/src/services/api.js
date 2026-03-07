@@ -7,7 +7,7 @@ const BASE_URL = '/api';
 
 async function request(url, options = {}) {
     // Use localStorage token while still allowing credentials (cookies) as fallback
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('hosp_token');
     const headers = {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

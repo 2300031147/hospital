@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { C, LOCATION_TASK_NAME, AUTH_TOKEN_KEY, AUTH_USER_KEY, ACTIVE_AMB_KEY, WS_BASE } from './src/config';
+import { C, LOCATION_TASK_NAME, AUTH_TOKEN_KEY, AUTH_USER_KEY, ACTIVE_AMB_KEY, API_BASE } from './src/config';
 import { getStoredAuth, logout as apiLogout, routeAmbulance, getOSRMRoute } from './src/services/api';
 import wsService from './src/services/websocket';
 
@@ -30,18 +30,17 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     const activeIdStr = await AsyncStorage.getItem(ACTIVE_AMB_KEY);
     if (!token || !activeIdStr) return;
 
-    // Brief WS connection for background GPS push
-    const ws = new WebSocket(`${WS_BASE}?token=${token}`);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: 'location_update',
-        ambulance_id: parseInt(activeIdStr),
+    await fetch(`${API_BASE}/api/ambulances/${activeIdStr}/position`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
         lat: loc.coords.latitude,
-        lon: loc.coords.longitude,
-      }));
-      setTimeout(() => ws.close(), 500);
-    };
-    ws.onerror = (e) => console.log('BG WS Error:', e.message);
+        lon: loc.coords.longitude
+      })
+    });
   } catch (err) {
     console.log('BG Task Error:', err);
   }
@@ -95,6 +94,10 @@ export default function App() {
       {
         text: 'Sign out', style: 'destructive',
         onPress: async () => {
+          if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+          }
           wsService.disconnect();
           await apiLogout();
           setAuthToken(null);
@@ -266,6 +269,7 @@ export default function App() {
       remaining -= 1;
       if (remaining <= 0) {
         clearInterval(countdownRef.current);
+        countdownRef.current = null;
         setCountdown(0);
       } else {
         setCountdown(remaining);
@@ -274,7 +278,10 @@ export default function App() {
   };
 
   const goBack = () => {
-    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
     setScreen('vitals');
     setResult(null);
     setCountdown(null);

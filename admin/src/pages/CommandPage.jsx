@@ -19,11 +19,6 @@ export default function CommandPage({ ws }) {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Auto-refresh every 10s
-    useEffect(() => {
-        const timer = setInterval(fetchData, 10000);
-        return () => clearInterval(timer);
-    }, [fetchData]);
 
     // Real-time WebSocket updates
     useEffect(() => {

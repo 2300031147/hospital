@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { getUsers, createUser, deleteUser, resetUserPassword } from '../services/api';
 
 export default function UsersPage() {
@@ -25,16 +26,16 @@ export default function UsersPage() {
             setShowCreate(false);
             setForm({ username: '', password: '', full_name: '', role: 'paramedic', ambulance_id: '', hospital_id: '' });
             fetchUsers();
-        } catch (e) { alert(e.message); }
+        } catch (e) { toast.error(e.message); }
     };
 
     const handleDelete = async (id, name) => {
         if (!window.confirm(`Delete user "${name}"?`)) return;
-        try { await deleteUser(id); fetchUsers(); } catch (e) { alert(e.message); }
+        try { await deleteUser(id); fetchUsers(); } catch (e) { toast.error(e.message); }
     };
 
     const handleReset = async (id) => {
-        try { await resetUserPassword(id, newPw); setResetId(null); setNewPw(''); alert('Password updated'); } catch (e) { alert(e.message); }
+        try { await resetUserPassword(id, newPw); setResetId(null); setNewPw(''); toast.success('Password updated'); } catch (e) { toast.error(e.message); }
     };
 
     const roleColors = {

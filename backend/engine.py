@@ -119,7 +119,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 
-def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, emergency_type: EmergencyType) -> float:
+def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, emergency_type: EmergencyType, eta_hours: float = 0.5) -> float:
     """
     Hospital readiness prediction score (0-1).
 
@@ -162,7 +162,6 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
     
     # Introduce Forecasting if wait > 15m. (e.g. night time + weekend = higher load prediction)
     # Assumes a 5% baseline turnover rate per hour
-    eta_hours = 0.5  # Fixed default since we pass ETA around carefully, heuristic for readiness score
     predicted_turnover = 0.05 * eta_hours 
     predicted_load_ratio -= predicted_turnover 
 
@@ -346,10 +345,10 @@ def rank_hospitals(
             continue
 
         distance_km = haversine_distance(amb_lat, amb_lon, hospital.lat, hospital.lon)
-        readiness = compute_readiness(hospital, severity.level, emergency_type)
+        eta = compute_eta(distance_km)
+        readiness = compute_readiness(hospital, severity.level, emergency_type, eta_hours=eta/60)
         dist_score = compute_distance_score(distance_km, weights["max_routing_distance_km"])
         sev_match = compute_severity_match(hospital, severity.level, emergency_type)
-        eta = compute_eta(distance_km)
 
         if severity.level == SeverityLevel.CRITICAL:
             # Priority to Specialty Match over Distance for Critical

@@ -11,8 +11,6 @@ export default function AnalyticsPage() {
             finally { setLoading(false); }
         };
         load();
-        const timer = setInterval(load, 15000);
-        return () => clearInterval(timer);
     }, []);
 
     if (loading) return <div className="page fade-in"><p style={{ color: 'var(--color-text-muted)' }}>Loading analytics...</p></div>;
