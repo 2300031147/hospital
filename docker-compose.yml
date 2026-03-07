@@ -1,0 +1,15 @@
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aerovhyn_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - AEROVHYN_JWT_SECRET=${AEROVHYN_JWT_SECRET:-AEROVHYN_EDGE_SUPER_SECRET_KEY_999}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174,http://10.0.2.2:5173}
+      - AEROVHYN_DB_PATH=/app/data/aerovhyn.db
+    volumes:
+      - ./backend_data:/app/data
+    restart: unless-stopped

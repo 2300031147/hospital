@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AEROVHYN — Hospital Portal</title>
+    <meta name="description"
+        content="AEROVHYN Hospital Portal: Real-time bed management, patient handoff, and ambulance tracking." />
+    <meta name="theme-color" content="#09090b" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <script>
+        (function () {
+            const t = localStorage.getItem('aerovhyn-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            document.documentElement.classList.add('no-transition');
+        })();
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #09090b;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+
+        .no-transition,
+        .no-transition * {
+            transition: none !important;
+        }
+
+        .skeleton-shell {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .skeleton-nav {
+            height: 52px;
+            background: #0f0f12;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .skeleton-brand {
+            width: 120px;
+            height: 14px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+        }
+
+        .skeleton-main {
+            flex: 1;
+            padding: 24px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .skeleton-card {
+            background: #0f0f12;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 20px;
+            min-height: 200px;
+        }
+
+        .skeleton-line {
+            height: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 4px;
+            margin-bottom: 12px;
+            animation: shimmer 1.5s infinite;
+        }
+
+        .skeleton-line:nth-child(1) {
+            width: 40%;
+        }
+
+        .skeleton-line:nth-child(2) {
+            width: 70%;
+        }
+
+        .skeleton-line:nth-child(3) {
+            width: 55%;
+        }
+
+        @keyframes shimmer {
+
+            0%,
+            100% {
+                opacity: 0.3;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
+    </style>
+  <script type="module" crossorigin src="/assets/index-BJLGkLnm.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-ntuL4Lf2.css">
+</head>
+
+<body>
+    <div id="root">
+        <div class="skeleton-shell">
+            <div class="skeleton-nav">
+                <div class="skeleton-brand"></div>
+            </div>
+            <div class="skeleton-main">
+                <div class="skeleton-card">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+                <div class="skeleton-card">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
