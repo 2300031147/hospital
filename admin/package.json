@@ -9,6 +9,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@sentry/react": "^10.42.0",
         "@tailwindcss/vite": "^4.2.0",
         "leaflet": "^1.9.4",
         "react": "^19.2.0",

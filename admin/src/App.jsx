@@ -10,6 +10,7 @@ import UsersPage from './pages/UsersPage';
 import HospitalsPage from './pages/HospitalsPage';
 import SettingsPage from './pages/SettingsPage';
 import LogsPage from './pages/LogsPage';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const ProtectedRoute = ({ children }) => {
     const { user, loading } = useAuth();
@@ -119,10 +120,12 @@ function AppContent() {
 
 export default function App() {
     return (
-        <BrowserRouter>
-            <AuthProvider>
-                <AppContent />
-            </AuthProvider>
-        </BrowserRouter>
+        <ErrorBoundary>
+            <BrowserRouter>
+                <AuthProvider>
+                    <AppContent />
+                </AuthProvider>
+            </BrowserRouter>
+        </ErrorBoundary>
     );
 }

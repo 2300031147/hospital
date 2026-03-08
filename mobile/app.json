@@ -40,7 +40,8 @@
           "locationAlwaysAndWhenInUsePermission": "Allow AEROVHYN to track ambulance location in the background for live command center routing.",
           "isAndroidBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "@sentry/react-native"
     ]
   }
 }
