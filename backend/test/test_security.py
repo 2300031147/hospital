@@ -11,6 +11,26 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+import time
+
+# Bug #60: Prevent stale test test_aerovhyn.db from contaminating subsequent CI runs
+@pytest.fixture(autouse=True)
+def setup_db():
+    if os.path.exists("test_aerovhyn.db"):
+        try:
+            os.remove("test_aerovhyn.db")
+        except PermissionError:
+            time.sleep(0.1)
+            try:
+                os.remove("test_aerovhyn.db")
+            except Exception:
+                pass
+    yield
+    if os.path.exists("test_aerovhyn.db"):
+        try:
+            os.remove("test_aerovhyn.db")
+        except Exception:
+            pass
 
 client = TestClient(app)
 

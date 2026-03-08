@@ -4,10 +4,11 @@ SQLite async setup with hospitals, ambulances, and logs tables.
 """
 
 import aiosqlite
-import asyncpg
 import json
+import asyncpg
 import os
 import re
+import asyncio
 from passlib.context import CryptContext
 
 DB_PATH_DEFAULT = os.path.join(os.path.dirname(__file__), "aerovhyn.db")
@@ -43,14 +44,45 @@ class PostgresDBWrapper:
         self.conn = conn
 
     async def execute(self, query: str, params: tuple = ()):
-        # Convert ? to $1, $2
-        parts = query.split('?')
-        pg_query = parts[0]
-        for i, part in enumerate(parts[1:], 1):
-            pg_query += f"${i}" + part
+        # Convert ? to $1, $2, but ONLY if they are not inside single quotes
+        # This is a basic regex approach that handles simple strings.
+        parts = re.split(r"(\?[^']*)", query)
+        pg_query = ""
+        param_idx = 1
+        
+        # Simpler approach: split by ?, but skip if in quotes.
+        # However, for our known queries, we can just be careful.
+        # Let's use a more robust regex that splits by '?' not followed by characters until a closing quote.
+        # Actually, let's just implement the requested fix for Bug #47 properly.
+        
+        pg_query = ""
+        in_quotes = False
+        chunks = []
+        current_chunk = ""
+        i = 0
+        while i < len(query):
+            if query[i] == "'":
+                in_quotes = not in_quotes
+                current_chunk += query[i]
+            elif query[i] == "?" and not in_quotes:
+                chunks.append(current_chunk)
+                chunks.append(f"${param_idx}")
+                param_idx += 1
+                current_chunk = ""
+            else:
+                current_chunk += query[i]
+            i += 1
+        chunks.append(current_chunk)
+        pg_query = "".join(chunks)
             
-        is_insert = pg_query.strip().upper().startswith("INSERT")
-        if is_insert and "RETURNING" not in pg_query.upper():
+        upper_query = pg_query.strip().upper()
+        # Bug #33: Handle DDL via conn.execute instead of conn.fetch
+        if upper_query.startswith(("CREATE", "ALTER", "DROP", "TRUNCATE", "PRAGMA")):
+            await self.conn.execute(pg_query, *params)
+            return CursorWrapper()
+
+        is_insert = upper_query.startswith("INSERT")
+        if is_insert and "RETURNING" not in upper_query:
             pg_query += " RETURNING id"
 
         try:
@@ -62,7 +94,7 @@ class PostgresDBWrapper:
             return CursorWrapper(rows=rows, lastrowid=lastrowid)
         except Exception as e:
             # Simple fallback for executescript-like statements or non-returning statements
-            if "RETURNING" in str(e):
+            if "does not exist" in str(e) or "RETURNING" in str(e):
                 pg_query = pg_query.replace(" RETURNING id", "")
                 await self.conn.execute(pg_query, *params)
                 return CursorWrapper()
@@ -80,12 +112,15 @@ class PostgresDBWrapper:
         await self.pool.release(self.conn)
 
 _pg_pool = None
+_pool_lock = asyncio.Lock()
 
 async def get_db():
     global _pg_pool
     if DATABASE_URL and DATABASE_URL.startswith("postgres"):
         if not _pg_pool:
-            _pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql://", "postgres://"))
+            async with _pool_lock:
+                if not _pg_pool: # Double-checked locking for Bug #45
+                    _pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql://", "postgres://"))
         conn = await _pg_pool.acquire()
         return PostgresDBWrapper(_pg_pool, conn)
     else:
@@ -139,6 +174,7 @@ async def init_db():
                     lon REAL NOT NULL,
                     patient_severity TEXT DEFAULT 'unknown',
                     destination_hospital_id INTEGER,
+                    emergency_type TEXT,
                     status TEXT DEFAULT 'idle',
                     patient_vitals TEXT DEFAULT '{}',
                     eta_minutes REAL DEFAULT 0,
@@ -220,15 +256,27 @@ async def seed_data():
                 # Hospital Admins
                 ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
                 ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
-                # Field Paramedics / Drivers
-                ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", "AMB-001", None),
-                ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", "AMB-002", None),
-                ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", "AMB-003", None),
+                # Field Paramedics / Drivers (using integer FKs for ambulance_id instead of string names)
+                ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", 1, None),
+                ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", 2, None),
+                ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", 3, None),
             ]
             for u in default_users:
                 await db.execute(
                     "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
                     u,
+                )
+            
+            # --- Seed ambulances ---
+            # Paramedics reference these by name in their users.ambulance_id field
+            ambulances = [
+                ("AMB-001", 17.4239, 78.4483),
+                ("AMB-002", 17.4156, 78.4347),
+                ("AMB-003", 17.4401, 78.4983),
+            ]
+            for name, lat, lon in ambulances:
+                await db.execute(
+                    "INSERT INTO ambulances (name, lat, lon) VALUES (?,?,?)", (name, lat, lon)
                 )
             await db.commit()
 
@@ -367,8 +415,11 @@ async def seed_data():
                      h['ventilators'], h['total_ventilators'], h['specialists'], h['current_load'], 
                      h['max_capacity'], h['equipment_score'], h['status'])
                 )
-            except Exception:
-                pass # Probably ON CONFLICT depending on db
+            except Exception as e:
+                # Bug #59: Log failure instead of silently swallowing the error
+                from logger import get_logger
+                db_log = get_logger("aerovhyn.db")
+                db_log.warning("hospital_seed_failed", extra={"name": h["name"], "error": str(e)})
             
         # Add baseline historical patterns for each seeded hospital
         cursor = await db.execute("SELECT id FROM hospitals")

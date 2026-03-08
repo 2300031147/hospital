@@ -1,0 +1,772 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Hospital\backend
+plugins: anyio-4.12.1
+collecting ... collected 4 items
+
+test/test_routing.py::test_route_endpoint_creates_ambulance ERROR        [ 25%]
+test/test_routing.py::test_ambulance_position_update_success ERROR       [ 50%]
+test/test_routing.py::test_unauthorized_position_update ERROR            [ 75%]
+test/test_routing.py::test_route_updates_existing_ambulance ERROR        [100%]
+
+=================================== ERRORS ====================================
+___________ ERROR at setup of test_route_endpoint_creates_ambulance ___________
+
+    @pytest.fixture(autouse=True)
+    def setup_db():
+>       asyncio.run(_setup())
+
+test\test_routing.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:25: in _setup
+    await seed_data()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def seed_data():
+        """Seed default users and 8 realistic hospitals in a metro area (Hyderabad-inspired coordinates)."""
+        db = await get_db()
+        try:
+            # --- Seed default users ---
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                default_users = [
+                    # Command Center / System Admin
+                    ("admin", hash_password("admin123"), "System Administrator", "command_center", None, None),
+                    # Hospital Admins
+                    ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
+                    ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
+                    # Field Paramedics / Drivers
+                    ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", "AMB-001", None),
+                    ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", "AMB-002", None),
+                    ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", "AMB-003", None),
+                ]
+                for u in default_users:
+                    await db.execute(
+                        "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                        u,
+                    )
+    
+                # --- Seed ambulances ---
+                # Paramedics reference these by name in their users.ambulance_id field
+                ambulances = [
+                    ("AMB-001", 17.4239, 78.4483),
+                    ("AMB-002", 17.4156, 78.4347),
+                    ("AMB-003", 17.4401, 78.4983),
+                ]
+                for name, lat, lon in ambulances:
+                    await db.execute(
+                        "INSERT INTO ambulances (name, lat, lon) VALUES (?,?,?)", (name, lat, lon)
+                    )
+                await db.commit()
+    
+            # --- Seed hospitals ---
+            cursor = await db.execute("SELECT COUNT(*) FROM hospitals")
+            row = await cursor.fetchone()
+            if row[0] > 0:
+                return  # Already seeded
+    
+            hospitals = [
+                {
+                    "name": "Apollo Emergency Hospital",
+                    "lat": 17.4239,
+                    "lon": 78.4483,
+                    "icu_beds": 8,
+                    "total_icu_beds": 12,
+                    "ventilators": 5,
+                    "total_ventilators": 8,
+>                   "specialists": json.dumps(["cardiology", "neurology", "trauma"]),
+                                   ^^^^
+                    "current_load": 45,
+                    "max_capacity": 120,
+                    "equipment_score": 0.95,
+                    "status": "active",
+                },
+                {
+                    "name": "KIMS Heart Center",
+                    "lat": 17.4156,
+                    "lon": 78.4347,
+                    "icu_beds": 6,
+                    "total_icu_beds": 10,
+                    "ventilators": 4,
+                    "total_ventilators": 6,
+                    "specialists": json.dumps(["cardiology", "pulmonology"]),
+                    "current_load": 62,
+                    "max_capacity": 100,
+                    "equipment_score": 0.90,
+                    "status": "active",
+                },
+                {
+                    "name": "Yashoda Super Specialty",
+                    "lat": 17.4401,
+                    "lon": 78.4983,
+                    "icu_beds": 10,
+                    "total_icu_beds": 15,
+                    "ventilators": 7,
+                    "total_ventilators": 10,
+                    "specialists": json.dumps(["cardiology", "orthopedics", "neurology", "trauma"]),
+                    "current_load": 30,
+                    "max_capacity": 150,
+                    "equipment_score": 0.92,
+                    "status": "active",
+                },
+                {
+                    "name": "Care Hospitals",
+                    "lat": 17.4485,
+                    "lon": 78.3908,
+                    "icu_beds": 4,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["trauma", "orthopedics"]),
+                    "current_load": 78,
+                    "max_capacity": 90,
+                    "equipment_score": 0.85,
+                    "status": "active",
+                },
+                {
+                    "name": "Continental General Hospital",
+                    "lat": 17.4350,
+                    "lon": 78.4600,
+                    "icu_beds": 3,
+                    "total_icu_beds": 6,
+                    "ventilators": 2,
+                    "total_ventilators": 4,
+                    "specialists": json.dumps(["general", "pulmonology"]),
+                    "current_load": 55,
+                    "max_capacity": 80,
+                    "equipment_score": 0.78,
+                    "status": "active",
+                },
+                {
+                    "name": "Sunshine Trauma Center",
+                    "lat": 17.4100,
+                    "lon": 78.4750,
+                    "icu_beds": 7,
+                    "total_icu_beds": 10,
+                    "ventilators": 5,
+                    "total_ventilators": 7,
+                    "specialists": json.dumps(["trauma", "neurology", "orthopedics"]),
+                    "current_load": 40,
+                    "max_capacity": 110,
+                    "equipment_score": 0.88,
+                    "status": "active",
+                },
+                {
+                    "name": "Medicover Emergency Wing",
+                    "lat": 17.4600,
+                    "lon": 78.4200,
+                    "icu_beds": 5,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["cardiology", "general"]),
+                    "current_load": 70,
+                    "max_capacity": 95,
+                    "equipment_score": 0.82,
+                    "status": "active",
+                },
+                {
+                    "name": "Global Hospitals",
+                    "lat": 17.4000,
+                    "lon": 78.4400,
+                    "icu_beds": 12,
+                    "total_icu_beds": 18,
+                    "ventilators": 9,
+                    "total_ventilators": 12,
+                    "specialists": json.dumps(["cardiology", "neurology", "trauma", "pulmonology", "orthopedics"]),
+                    "current_load": 25,
+                    "max_capacity": 200,
+                    "equipment_score": 0.97,
+                    "status": "active",
+                },
+            ]
+E           NameError: name 'json' is not defined
+
+database.py:296: NameError
+__________ ERROR at setup of test_ambulance_position_update_success ___________
+
+    @pytest.fixture(autouse=True)
+    def setup_db():
+>       asyncio.run(_setup())
+
+test\test_routing.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:25: in _setup
+    await seed_data()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def seed_data():
+        """Seed default users and 8 realistic hospitals in a metro area (Hyderabad-inspired coordinates)."""
+        db = await get_db()
+        try:
+            # --- Seed default users ---
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                default_users = [
+                    # Command Center / System Admin
+                    ("admin", hash_password("admin123"), "System Administrator", "command_center", None, None),
+                    # Hospital Admins
+                    ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
+                    ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
+                    # Field Paramedics / Drivers
+                    ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", "AMB-001", None),
+                    ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", "AMB-002", None),
+                    ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", "AMB-003", None),
+                ]
+                for u in default_users:
+                    await db.execute(
+                        "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                        u,
+                    )
+    
+                # --- Seed ambulances ---
+                # Paramedics reference these by name in their users.ambulance_id field
+                ambulances = [
+                    ("AMB-001", 17.4239, 78.4483),
+                    ("AMB-002", 17.4156, 78.4347),
+                    ("AMB-003", 17.4401, 78.4983),
+                ]
+                for name, lat, lon in ambulances:
+                    await db.execute(
+                        "INSERT INTO ambulances (name, lat, lon) VALUES (?,?,?)", (name, lat, lon)
+                    )
+                await db.commit()
+    
+            # --- Seed hospitals ---
+            cursor = await db.execute("SELECT COUNT(*) FROM hospitals")
+            row = await cursor.fetchone()
+            if row[0] > 0:
+                return  # Already seeded
+    
+            hospitals = [
+                {
+                    "name": "Apollo Emergency Hospital",
+                    "lat": 17.4239,
+                    "lon": 78.4483,
+                    "icu_beds": 8,
+                    "total_icu_beds": 12,
+                    "ventilators": 5,
+                    "total_ventilators": 8,
+>                   "specialists": json.dumps(["cardiology", "neurology", "trauma"]),
+                                   ^^^^
+                    "current_load": 45,
+                    "max_capacity": 120,
+                    "equipment_score": 0.95,
+                    "status": "active",
+                },
+                {
+                    "name": "KIMS Heart Center",
+                    "lat": 17.4156,
+                    "lon": 78.4347,
+                    "icu_beds": 6,
+                    "total_icu_beds": 10,
+                    "ventilators": 4,
+                    "total_ventilators": 6,
+                    "specialists": json.dumps(["cardiology", "pulmonology"]),
+                    "current_load": 62,
+                    "max_capacity": 100,
+                    "equipment_score": 0.90,
+                    "status": "active",
+                },
+                {
+                    "name": "Yashoda Super Specialty",
+                    "lat": 17.4401,
+                    "lon": 78.4983,
+                    "icu_beds": 10,
+                    "total_icu_beds": 15,
+                    "ventilators": 7,
+                    "total_ventilators": 10,
+                    "specialists": json.dumps(["cardiology", "orthopedics", "neurology", "trauma"]),
+                    "current_load": 30,
+                    "max_capacity": 150,
+                    "equipment_score": 0.92,
+                    "status": "active",
+                },
+                {
+                    "name": "Care Hospitals",
+                    "lat": 17.4485,
+                    "lon": 78.3908,
+                    "icu_beds": 4,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["trauma", "orthopedics"]),
+                    "current_load": 78,
+                    "max_capacity": 90,
+                    "equipment_score": 0.85,
+                    "status": "active",
+                },
+                {
+                    "name": "Continental General Hospital",
+                    "lat": 17.4350,
+                    "lon": 78.4600,
+                    "icu_beds": 3,
+                    "total_icu_beds": 6,
+                    "ventilators": 2,
+                    "total_ventilators": 4,
+                    "specialists": json.dumps(["general", "pulmonology"]),
+                    "current_load": 55,
+                    "max_capacity": 80,
+                    "equipment_score": 0.78,
+                    "status": "active",
+                },
+                {
+                    "name": "Sunshine Trauma Center",
+                    "lat": 17.4100,
+                    "lon": 78.4750,
+                    "icu_beds": 7,
+                    "total_icu_beds": 10,
+                    "ventilators": 5,
+                    "total_ventilators": 7,
+                    "specialists": json.dumps(["trauma", "neurology", "orthopedics"]),
+                    "current_load": 40,
+                    "max_capacity": 110,
+                    "equipment_score": 0.88,
+                    "status": "active",
+                },
+                {
+                    "name": "Medicover Emergency Wing",
+                    "lat": 17.4600,
+                    "lon": 78.4200,
+                    "icu_beds": 5,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["cardiology", "general"]),
+                    "current_load": 70,
+                    "max_capacity": 95,
+                    "equipment_score": 0.82,
+                    "status": "active",
+                },
+                {
+                    "name": "Global Hospitals",
+                    "lat": 17.4000,
+                    "lon": 78.4400,
+                    "icu_beds": 12,
+                    "total_icu_beds": 18,
+                    "ventilators": 9,
+                    "total_ventilators": 12,
+                    "specialists": json.dumps(["cardiology", "neurology", "trauma", "pulmonology", "orthopedics"]),
+                    "current_load": 25,
+                    "max_capacity": 200,
+                    "equipment_score": 0.97,
+                    "status": "active",
+                },
+            ]
+E           NameError: name 'json' is not defined
+
+database.py:296: NameError
+_____________ ERROR at setup of test_unauthorized_position_update _____________
+
+    @pytest.fixture(autouse=True)
+    def setup_db():
+>       asyncio.run(_setup())
+
+test\test_routing.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:25: in _setup
+    await seed_data()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def seed_data():
+        """Seed default users and 8 realistic hospitals in a metro area (Hyderabad-inspired coordinates)."""
+        db = await get_db()
+        try:
+            # --- Seed default users ---
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                default_users = [
+                    # Command Center / System Admin
+                    ("admin", hash_password("admin123"), "System Administrator", "command_center", None, None),
+                    # Hospital Admins
+                    ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
+                    ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
+                    # Field Paramedics / Drivers
+                    ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", "AMB-001", None),
+                    ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", "AMB-002", None),
+                    ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", "AMB-003", None),
+                ]
+                for u in default_users:
+                    await db.execute(
+                        "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                        u,
+                    )
+    
+                # --- Seed ambulances ---
+                # Paramedics reference these by name in their users.ambulance_id field
+                ambulances = [
+                    ("AMB-001", 17.4239, 78.4483),
+                    ("AMB-002", 17.4156, 78.4347),
+                    ("AMB-003", 17.4401, 78.4983),
+                ]
+                for name, lat, lon in ambulances:
+                    await db.execute(
+                        "INSERT INTO ambulances (name, lat, lon) VALUES (?,?,?)", (name, lat, lon)
+                    )
+                await db.commit()
+    
+            # --- Seed hospitals ---
+            cursor = await db.execute("SELECT COUNT(*) FROM hospitals")
+            row = await cursor.fetchone()
+            if row[0] > 0:
+                return  # Already seeded
+    
+            hospitals = [
+                {
+                    "name": "Apollo Emergency Hospital",
+                    "lat": 17.4239,
+                    "lon": 78.4483,
+                    "icu_beds": 8,
+                    "total_icu_beds": 12,
+                    "ventilators": 5,
+                    "total_ventilators": 8,
+>                   "specialists": json.dumps(["cardiology", "neurology", "trauma"]),
+                                   ^^^^
+                    "current_load": 45,
+                    "max_capacity": 120,
+                    "equipment_score": 0.95,
+                    "status": "active",
+                },
+                {
+                    "name": "KIMS Heart Center",
+                    "lat": 17.4156,
+                    "lon": 78.4347,
+                    "icu_beds": 6,
+                    "total_icu_beds": 10,
+                    "ventilators": 4,
+                    "total_ventilators": 6,
+                    "specialists": json.dumps(["cardiology", "pulmonology"]),
+                    "current_load": 62,
+                    "max_capacity": 100,
+                    "equipment_score": 0.90,
+                    "status": "active",
+                },
+                {
+                    "name": "Yashoda Super Specialty",
+                    "lat": 17.4401,
+                    "lon": 78.4983,
+                    "icu_beds": 10,
+                    "total_icu_beds": 15,
+                    "ventilators": 7,
+                    "total_ventilators": 10,
+                    "specialists": json.dumps(["cardiology", "orthopedics", "neurology", "trauma"]),
+                    "current_load": 30,
+                    "max_capacity": 150,
+                    "equipment_score": 0.92,
+                    "status": "active",
+                },
+                {
+                    "name": "Care Hospitals",
+                    "lat": 17.4485,
+                    "lon": 78.3908,
+                    "icu_beds": 4,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["trauma", "orthopedics"]),
+                    "current_load": 78,
+                    "max_capacity": 90,
+                    "equipment_score": 0.85,
+                    "status": "active",
+                },
+                {
+                    "name": "Continental General Hospital",
+                    "lat": 17.4350,
+                    "lon": 78.4600,
+                    "icu_beds": 3,
+                    "total_icu_beds": 6,
+                    "ventilators": 2,
+                    "total_ventilators": 4,
+                    "specialists": json.dumps(["general", "pulmonology"]),
+                    "current_load": 55,
+                    "max_capacity": 80,
+                    "equipment_score": 0.78,
+                    "status": "active",
+                },
+                {
+                    "name": "Sunshine Trauma Center",
+                    "lat": 17.4100,
+                    "lon": 78.4750,
+                    "icu_beds": 7,
+                    "total_icu_beds": 10,
+                    "ventilators": 5,
+                    "total_ventilators": 7,
+                    "specialists": json.dumps(["trauma", "neurology", "orthopedics"]),
+                    "current_load": 40,
+                    "max_capacity": 110,
+                    "equipment_score": 0.88,
+                    "status": "active",
+                },
+                {
+                    "name": "Medicover Emergency Wing",
+                    "lat": 17.4600,
+                    "lon": 78.4200,
+                    "icu_beds": 5,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["cardiology", "general"]),
+                    "current_load": 70,
+                    "max_capacity": 95,
+                    "equipment_score": 0.82,
+                    "status": "active",
+                },
+                {
+                    "name": "Global Hospitals",
+                    "lat": 17.4000,
+                    "lon": 78.4400,
+                    "icu_beds": 12,
+                    "total_icu_beds": 18,
+                    "ventilators": 9,
+                    "total_ventilators": 12,
+                    "specialists": json.dumps(["cardiology", "neurology", "trauma", "pulmonology", "orthopedics"]),
+                    "current_load": 25,
+                    "max_capacity": 200,
+                    "equipment_score": 0.97,
+                    "status": "active",
+                },
+            ]
+E           NameError: name 'json' is not defined
+
+database.py:296: NameError
+___________ ERROR at setup of test_route_updates_existing_ambulance ___________
+
+    @pytest.fixture(autouse=True)
+    def setup_db():
+>       asyncio.run(_setup())
+
+test\test_routing.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:25: in _setup
+    await seed_data()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def seed_data():
+        """Seed default users and 8 realistic hospitals in a metro area (Hyderabad-inspired coordinates)."""
+        db = await get_db()
+        try:
+            # --- Seed default users ---
+            cursor = await db.execute("SELECT COUNT(*) FROM users")
+            row = await cursor.fetchone()
+            if row[0] == 0:
+                default_users = [
+                    # Command Center / System Admin
+                    ("admin", hash_password("admin123"), "System Administrator", "command_center", None, None),
+                    # Hospital Admins
+                    ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
+                    ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
+                    # Field Paramedics / Drivers
+                    ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", "AMB-001", None),
+                    ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", "AMB-002", None),
+                    ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", "AMB-003", None),
+                ]
+                for u in default_users:
+                    await db.execute(
+                        "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                        u,
+                    )
+    
+                # --- Seed ambulances ---
+                # Paramedics reference these by name in their users.ambulance_id field
+                ambulances = [
+                    ("AMB-001", 17.4239, 78.4483),
+                    ("AMB-002", 17.4156, 78.4347),
+                    ("AMB-003", 17.4401, 78.4983),
+                ]
+                for name, lat, lon in ambulances:
+                    await db.execute(
+                        "INSERT INTO ambulances (name, lat, lon) VALUES (?,?,?)", (name, lat, lon)
+                    )
+                await db.commit()
+    
+            # --- Seed hospitals ---
+            cursor = await db.execute("SELECT COUNT(*) FROM hospitals")
+            row = await cursor.fetchone()
+            if row[0] > 0:
+                return  # Already seeded
+    
+            hospitals = [
+                {
+                    "name": "Apollo Emergency Hospital",
+                    "lat": 17.4239,
+                    "lon": 78.4483,
+                    "icu_beds": 8,
+                    "total_icu_beds": 12,
+                    "ventilators": 5,
+                    "total_ventilators": 8,
+>                   "specialists": json.dumps(["cardiology", "neurology", "trauma"]),
+                                   ^^^^
+                    "current_load": 45,
+                    "max_capacity": 120,
+                    "equipment_score": 0.95,
+                    "status": "active",
+                },
+                {
+                    "name": "KIMS Heart Center",
+                    "lat": 17.4156,
+                    "lon": 78.4347,
+                    "icu_beds": 6,
+                    "total_icu_beds": 10,
+                    "ventilators": 4,
+                    "total_ventilators": 6,
+                    "specialists": json.dumps(["cardiology", "pulmonology"]),
+                    "current_load": 62,
+                    "max_capacity": 100,
+                    "equipment_score": 0.90,
+                    "status": "active",
+                },
+                {
+                    "name": "Yashoda Super Specialty",
+                    "lat": 17.4401,
+                    "lon": 78.4983,
+                    "icu_beds": 10,
+                    "total_icu_beds": 15,
+                    "ventilators": 7,
+                    "total_ventilators": 10,
+                    "specialists": json.dumps(["cardiology", "orthopedics", "neurology", "trauma"]),
+                    "current_load": 30,
+                    "max_capacity": 150,
+                    "equipment_score": 0.92,
+                    "status": "active",
+                },
+                {
+                    "name": "Care Hospitals",
+                    "lat": 17.4485,
+                    "lon": 78.3908,
+                    "icu_beds": 4,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["trauma", "orthopedics"]),
+                    "current_load": 78,
+                    "max_capacity": 90,
+                    "equipment_score": 0.85,
+                    "status": "active",
+                },
+                {
+                    "name": "Continental General Hospital",
+                    "lat": 17.4350,
+                    "lon": 78.4600,
+                    "icu_beds": 3,
+                    "total_icu_beds": 6,
+                    "ventilators": 2,
+                    "total_ventilators": 4,
+                    "specialists": json.dumps(["general", "pulmonology"]),
+                    "current_load": 55,
+                    "max_capacity": 80,
+                    "equipment_score": 0.78,
+                    "status": "active",
+                },
+                {
+                    "name": "Sunshine Trauma Center",
+                    "lat": 17.4100,
+                    "lon": 78.4750,
+                    "icu_beds": 7,
+                    "total_icu_beds": 10,
+                    "ventilators": 5,
+                    "total_ventilators": 7,
+                    "specialists": json.dumps(["trauma", "neurology", "orthopedics"]),
+                    "current_load": 40,
+                    "max_capacity": 110,
+                    "equipment_score": 0.88,
+                    "status": "active",
+                },
+                {
+                    "name": "Medicover Emergency Wing",
+                    "lat": 17.4600,
+                    "lon": 78.4200,
+                    "icu_beds": 5,
+                    "total_icu_beds": 8,
+                    "ventilators": 3,
+                    "total_ventilators": 5,
+                    "specialists": json.dumps(["cardiology", "general"]),
+                    "current_load": 70,
+                    "max_capacity": 95,
+                    "equipment_score": 0.82,
+                    "status": "active",
+                },
+                {
+                    "name": "Global Hospitals",
+                    "lat": 17.4000,
+                    "lon": 78.4400,
+                    "icu_beds": 12,
+                    "total_icu_beds": 18,
+                    "ventilators": 9,
+                    "total_ventilators": 12,
+                    "specialists": json.dumps(["cardiology", "neurology", "trauma", "pulmonology", "orthopedics"]),
+                    "current_load": 25,
+                    "max_capacity": 200,
+                    "equipment_score": 0.97,
+                    "status": "active",
+                },
+            ]
+E           NameError: name 'json' is not defined
+
+database.py:296: NameError
+============================== warnings summary ===============================
+main.py:93
+  D:\Hospital\backend\main.py:93: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\fastapi\applications.py:4495
+  C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\fastapi\applications.py:4495: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR test/test_routing.py::test_route_endpoint_creates_ambulance - NameError...
+ERROR test/test_routing.py::test_ambulance_position_update_success - NameErro...
+ERROR test/test_routing.py::test_unauthorized_position_update - NameError: na...
+ERROR test/test_routing.py::test_route_updates_existing_ambulance - NameError...
+======================== 2 warnings, 4 errors in 6.99s ========================
+

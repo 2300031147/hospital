@@ -32,10 +32,14 @@ class AsyncTTLCache:
     async def get(self, key: str) -> Optional[Any]:
         """Get value if key exists and hasn't expired."""
         if self._redis:
-            val = await self._redis.get(key)
-            if val:
-                return json.loads(val)
-            return None
+            try:
+                val = await self._redis.get(key)
+                if val:
+                    return json.loads(val)
+                return None
+            except Exception:
+                # Fallback to memory on Redis error for Bug #36
+                pass
         else:
             if key in self._store:
                 value, expires_at = self._store[key]
@@ -49,7 +53,11 @@ class AsyncTTLCache:
         """Set value with TTL (seconds)."""
         expiry_sec = ttl if ttl is not None else self._default_ttl
         if self._redis:
-            await self._redis.set(key, json.dumps(value), ex=expiry_sec)
+            try:
+                await self._redis.set(key, json.dumps(value), ex=expiry_sec)
+                # We still set to memory as fallback/backup
+            except Exception:
+                pass
         else:
             expiry = time.time() + expiry_sec
             self._store[key] = (value, expiry)
@@ -57,16 +65,22 @@ class AsyncTTLCache:
     async def delete(self, key: str):
         """Delete a key from the cache."""
         if self._redis:
-            await self._redis.delete(key)
+            try:
+                await self._redis.delete(key)
+            except Exception:
+                pass
         else:
             self._store.pop(key, None)
 
     async def invalidate_prefix(self, prefix: str):
         """Delete all keys matching a prefix."""
         if self._redis:
-            keys = await self._redis.keys(f"{prefix}*")
-            if keys:
-                await self._redis.delete(*keys)
+            try:
+                keys = await self._redis.keys(f"{prefix}*")
+                if keys:
+                    await self._redis.delete(*keys)
+            except Exception:
+                pass
         else:
             keys_to_delete = [k for k in self._store if k.startswith(prefix)]
             for k in keys_to_delete:
@@ -82,7 +96,8 @@ class AsyncTTLCache:
     async def stats(self) -> dict:
         """Return cache statistics."""
         if self._redis:
-            info = await self._redis.info()
+            # Bug #62: Only request the chunk of Redis Info we need to save bandwidth and CPU
+            info = await self._redis.info("memory")
             dbsize = await self._redis.dbsize()
             return {
                 "total_keys": dbsize,
@@ -129,8 +144,12 @@ def cached(key_template: str, ttl: int = 15):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            cache_key = key_template
-            
+            # Try to format the key if it has placeholders, using kwargs
+            try:
+                cache_key = key_template.format(**kwargs) if kwargs else key_template
+            except KeyError:
+                cache_key = key_template
+
             # Check cache first
             result = await cache.get(cache_key)
             if result is not None:

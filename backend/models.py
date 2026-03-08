@@ -3,8 +3,9 @@ AEROVHYN — Pydantic Models
 Request/response schemas for the API.
 """
 
-from pydantic import BaseModel, Field, validator
-from typing import Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Optional, Union
+from datetime import datetime
 from enum import Enum
 
 
@@ -56,8 +57,9 @@ class HospitalCreate(BaseModel):
     specialists: list[str] = []
     current_load: int = 0
     max_capacity: int = 100
-    equipment_score: float = 0.8
-    status: str = "active"
+    # Bug #44: Add range and enum-like validation
+    equipment_score: float = Field(0.8, ge=0.0, le=1.0)
+    status: str = Field("active", pattern="^(active|inactive|diverted)$")
 
 
 class SystemSettings(BaseModel):
@@ -65,6 +67,14 @@ class SystemSettings(BaseModel):
     readiness_weight: float = Field(0.5, ge=0.0, le=1.0)
     severity_match_weight: float = Field(0.3, ge=0.0, le=1.0)
     max_routing_distance_km: float = Field(30.0, ge=5.0, le=200.0)
+
+    @model_validator(mode='after')
+    def weights_must_sum_to_one(self):
+        # Bug #43: Ensure engine weights sum to 1.0
+        total = self.distance_weight + self.readiness_weight + self.severity_match_weight
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f'Weights must sum to 1.0, got {round(total, 3)}')
+        return self
 
 
 class HospitalUpdate(BaseModel):
@@ -169,7 +179,8 @@ class UserCreate(BaseModel):
     ambulance_id: Optional[str] = None
     hospital_id: Optional[int] = None
     
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters')
@@ -179,7 +190,8 @@ class UserCreate(BaseModel):
             raise ValueError('Password must contain a digit')
         return v
 
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def username_valid(cls, v):
         if len(v) < 3:
             raise ValueError('Username must be at least 3 characters')
@@ -202,7 +214,7 @@ class UserResponse(BaseModel):
     role: str
     ambulance_id: Optional[str] = None
     hospital_id: Optional[int] = None
-    created_at: str
+    created_at: Union[str, datetime]
 
 
 class AnalyticsResponse(BaseModel):

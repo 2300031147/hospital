@@ -1,14 +1,16 @@
-"""
-AEROVHYN — WebSocket Connection Manager v2
-Per-role channels, heartbeat, reconnection tracking, and message queue.
-"""
-
 import json
 import asyncio
 import time
+import os
 from collections import defaultdict
 from fastapi import WebSocket
 from logger import get_logger
+
+REDIS_URL = os.getenv("REDIS_URL")
+try:
+    import redis.asyncio as redis
+except ImportError:
+    redis = None
 
 log = get_logger("aerovhyn.ws")
 
@@ -19,6 +21,11 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: list[dict] = []  # [{ws, role, hospital_id, username, connected_at}]
         self.heartbeat_task = None
+        self.pubsub_task = None
+        self._redis = None
+        if REDIS_URL and redis:
+            self._redis = redis.from_url(REDIS_URL, decode_responses=True)
+        
         self._metrics = {
             "total_connects": 0,
             "total_disconnects": 0,
@@ -39,8 +46,41 @@ class ConnectionManager:
             for d in dead:
                 self.disconnect(d["ws"])
 
+    async def _pubsub_loop(self):
+        """Listen for broadcast messages from other workers via Redis."""
+        if not self._redis:
+            return
+            
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe("aerovhyn:ws:broadcast")
+        
+        log.info("WS PubSub listener started")
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = json.loads(message["data"])
+                    target_type = data.get("target_type", "all")
+                    msg = data.get("message")
+                    
+                    if target_type == "all":
+                        await self.broadcast(msg, remote=False)
+                    elif target_type == "role":
+                        await self.broadcast_to_role(data.get("role"), msg, remote=False)
+                    elif target_type == "hospital":
+                        await self.broadcast_to_hospital(data.get("hospital_id"), msg, remote=False)
+        except Exception as e:
+            log.error(f"WS PubSub error: {e}")
+        finally:
+            await pubsub.unsubscribe("aerovhyn:ws:broadcast")
+
     async def connect(self, websocket: WebSocket, role: str = None, hospital_id: int = None, username: str = None):
         """Accept a WebSocket connection and register with metadata."""
+        # Bug #61: Limit unhandled websocket spawns
+        MAX_WS_CONNECTIONS = int(os.getenv("MAX_WS_CONNECTIONS", "500"))
+        if len(self.active_connections) >= MAX_WS_CONNECTIONS:
+            await websocket.close(code=1008, reason="Connection limit reached")
+            return
+
         await websocket.accept()
         conn_info = {
             "ws": websocket,
@@ -54,6 +94,9 @@ class ConnectionManager:
 
         if self.heartbeat_task is None:
             self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            
+        if self._redis and self.pubsub_task is None:
+            self.pubsub_task = asyncio.create_task(self._pubsub_loop())
 
         # Log connection
         role_str = role or "unknown"
@@ -68,8 +111,15 @@ class ConnectionManager:
                 log.info(f"WS disconnected", extra={"role": conn_info.get('role', '?'), "username": conn_info.get('username', '?'), "total": len(self.active_connections)})
                 break
 
-    async def broadcast(self, message: dict):
+    async def broadcast(self, message: dict, remote: bool = True):
         """Send a JSON message to ALL connected clients."""
+        if remote and self._redis:
+            await self._redis.publish("aerovhyn:ws:broadcast", json.dumps({
+                "target_type": "all",
+                "message": message
+            }))
+            return
+
         dead = []
         self._metrics["total_broadcasts"] += 1
 
@@ -83,8 +133,16 @@ class ConnectionManager:
         for d in dead:
             self.disconnect(d["ws"])
 
-    async def broadcast_to_role(self, role: str, message: dict):
+    async def broadcast_to_role(self, role: str, message: dict, remote: bool = True):
         """Send message only to clients with a specific role."""
+        if remote and self._redis:
+            await self._redis.publish("aerovhyn:ws:broadcast", json.dumps({
+                "target_type": "role",
+                "role": role,
+                "message": message
+            }))
+            return
+
         dead = []
         for conn_info in self.active_connections.copy():
             if conn_info.get("role") == role:
@@ -97,8 +155,16 @@ class ConnectionManager:
         for d in dead:
             self.disconnect(d["ws"])
 
-    async def broadcast_to_hospital(self, hospital_id: int, message: dict):
+    async def broadcast_to_hospital(self, hospital_id: int, message: dict, remote: bool = True):
         """Send message only to hospital admin clients for a specific hospital."""
+        if remote and self._redis:
+            await self._redis.publish("aerovhyn:ws:broadcast", json.dumps({
+                "target_type": "hospital",
+                "hospital_id": hospital_id,
+                "message": message
+            }))
+            return
+
         dead = []
         for conn_info in self.active_connections.copy():
             if conn_info.get("hospital_id") == hospital_id:

@@ -79,43 +79,43 @@ def test_route_endpoint_creates_ambulance():
         assert "ranked_hospitals" in data
         assert len(data["ranked_hospitals"]) > 0
 
-def test_ambulance_position_update():
-    """A paramedic without an ambulance assignment trying to update any ambulance gets 403."""
+def test_ambulance_position_update_success():
+    """Verify a paramedic can update their own assigned ambulance."""
     with TestClient(app) as c:
-        token = get_auth_token(c)
-        # Since paramedic1 has no ambulance_id in their JWT (the ambulance lookup
-        # fails because no ambulance named AMB-001 exists yet), updating ambulance 1
-        # should return 403 ownership error or 404 if the ambulance does not exist.
+        token = get_auth_token(c) # paramedic1 has ambulance_id 1
         update_payload = {"lat": 17.41, "lon": 78.41}
         res = c.put(
-            f"/api/ambulances/999/position",
+            "/api/ambulances/1/position",
             json=update_payload,
             headers={"Authorization": f"Bearer {token}"}
         )
-        assert res.status_code in (403, 404)
+        assert res.status_code == 200
 
 def test_unauthorized_position_update():
-    """A paramedic without an ambulance assignment gets 403 on any ambulance position update."""
+    """Verify a paramedic cannot update an ambulance not assigned to them."""
     with TestClient(app) as c:
-        # Login as paramedic1 (no ambulance linked to this JWT)
-        token = get_auth_token(c)
+        # paramedic1 has ambulance_id 1
+        token = get_auth_token(c) 
 
-        # Create an ambulance via route
-        route_payload = {
-            "ambulance_lat": 17.4, "ambulance_lon": 78.4,
-            "vitals": {"heart_rate": 150, "spo2": 85, "systolic_bp": 90, "emergency_type": "cardiac", "age": 55}
-        }
-        route_res = c.post("/api/route", json=route_payload, headers={"Authorization": f"Bearer {token}"})
-        assert route_res.status_code == 200, route_res.json()
-        amb_id = route_res.json()["ambulance_id"]
-
-        # Trying to update an ambulance that is NOT in the JWT ambulance_id (which is None)
-        # should return 403
+        # Trying to update ambulance 2 (assigned to paramedic2) should 403
         update_payload = {"lat": 17.41, "lon": 78.41}
         res = c.put(
-            f"/api/ambulances/{amb_id}/position",
+            "/api/ambulances/2/position",
             json=update_payload,
             headers={"Authorization": f"Bearer {token}"}
         )
         assert res.status_code == 403
         assert "ambulance" in res.json()["detail"].lower()
+
+def test_route_updates_existing_ambulance():
+    """Bug #32: Verify route updates the paramedic's existing ambulance record."""
+    with TestClient(app) as c:
+        token = get_auth_token(c) # paramedic1 has ambulance_id 1
+        route_payload = {
+            "ambulance_lat": 17.4, "ambulance_lon": 78.4,
+            "vitals": {"heart_rate": 150, "spo2": 85, "systolic_bp": 90, "emergency_type": "cardiac", "age": 55}
+        }
+        res = c.post("/api/route", json=route_payload, headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ambulance_id"] == 1 # Should be 1, not a new ID

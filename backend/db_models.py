@@ -11,7 +11,8 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     role = Column(String, nullable=False, default='paramedic')
-    ambulance_id = Column(String)  # Historically string, left as is
+    # Bug #57: Convert ambulance_id to FK integer instead of string collision
+    ambulance_id = Column(Integer, ForeignKey('ambulances.id'))
     hospital_id = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -73,6 +74,12 @@ class HistoricalPattern(Base):
     hour_of_day = Column(Integer, nullable=False)  # 0-23
     avg_load = Column(Float, nullable=False)
     avg_turnover_rate = Column(Float, default=0.05)
+    
+    # Bug #58: Enforce unique constraint so reseeding doesn't duplicate slots
+    from sqlalchemy import UniqueConstraint
+    __table_args__ = (
+        UniqueConstraint('hospital_id', 'day_of_week', 'hour_of_day', name='uq_pattern_slot'),
+    )
 
 class SystemSettingsDB(Base):
     __tablename__ = 'settings'

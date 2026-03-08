@@ -45,14 +45,19 @@ async def verify_token(request: Request) -> TokenData:
     
     # 1. Check the cookie first and strip "Bearer " if present
     token = request.cookies.get("access_token")
-    if token and token.startswith("Bearer "):
-        token = token.split(" ")[1]
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        if cookie_token.startswith("Bearer "):
+            token = cookie_token[7:].strip()
+        else:
+            token = cookie_token.strip()
             
-    # 2. If no cookie, check the Authorization header
+    # 2. If no token from cookie, check the Authorization header
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
+            # Bug #40: Use slice instead of split to handle extra spaces robustly
+            token = auth_header[7:].strip()
             
     if not token:
         raise credentials_exception
@@ -67,17 +72,31 @@ async def verify_token(request: Request) -> TokenData:
             raise credentials_exception
         ambulance_id: Optional[int] = payload.get("ambulance_id")
         user_id: Optional[int] = payload.get("user_id")
+        
+        # Bug #56: Check user existence in DB to instantly revoke deleted users
+        from database import get_db
+        db = await get_db()
+        try:
+            cursor = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
+            if not await cursor.fetchone():
+                raise credentials_exception
+        finally:
+            await db.close()
+
         token_data = TokenData(username=username, role=role, hospital_id=hospital_id, ambulance_id=ambulance_id, user_id=user_id)
         return token_data
     except JWTError:
         raise credentials_exception
 
 async def require_paramedic(token_data: TokenData = Depends(verify_token)):
+    """
+    Ensures user is a paramedic. 
+    NOTE (Bug #38): command_center is allowed as a 'super-role' for ops override.
+    """
     if token_data.role != "paramedic":
-        # Check if Command Center is testing the endpoint
         if token_data.role == "command_center":
             return token_data
-        raise HTTPException(status_code=403, detail="Paramedic privileges required")
+        raise HTTPException(status_code=403, detail="Paramedic or Dispatcher permissions required")
     return token_data
 
 async def require_hospital_admin(token_data: TokenData = Depends(verify_token)):

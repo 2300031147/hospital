@@ -5,7 +5,7 @@ Core intelligence: severity classification, readiness prediction, ranking, and r
 
 import math
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from models import (
     PatientVitals,
     SeverityResult,
@@ -153,7 +153,6 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
     # Simulating the Historical fetch based on current ETA and time
     # (In a true prod environment, this could involve an async call before engine ranking. 
     # For Engine performance, we use a predictive weighting heuristic based on time of day).
-    from datetime import timedelta
     now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
     current_hour = now_ist.hour
     is_weekend = now_ist.weekday() >= 5
@@ -194,7 +193,12 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
     # Uncertainty Penalty for stale data
     if hospital.last_updated:
         try:
-            last_updated_dt = datetime.strptime(hospital.last_updated, "%Y-%m-%d %H:%M:%S")
+            # Bug #54: Support both SQLite string and Postgres datetime types
+            if isinstance(hospital.last_updated, datetime):
+                last_updated_dt = hospital.last_updated
+            else:
+                last_updated_dt = datetime.strptime(str(hospital.last_updated), "%Y-%m-%d %H:%M:%S")
+            
             now = datetime.utcnow()
             diff_minutes = (now - last_updated_dt).total_seconds() / 60.0
             if diff_minutes > 30:
@@ -358,7 +362,12 @@ def rank_hospitals(
             
             # Normalize to 1.0
             total = s_weight + r_weight + d_weight
-            s_weight, r_weight, d_weight = s_weight/total, r_weight/total, d_weight/total
+            
+            # Bug #55: Prevent ZeroDivisionError if command center sets all weights to 0.0
+            if total > 0:
+                s_weight, r_weight, d_weight = s_weight/total, r_weight/total, d_weight/total
+            else:
+                s_weight, r_weight, d_weight = 0.34, 0.33, 0.33
             
             final_score = readiness * r_weight + dist_score * d_weight + sev_match * s_weight
         else:

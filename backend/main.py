@@ -12,7 +12,7 @@ import json
 import asyncio
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,7 +43,7 @@ from engine import classify_severity, rank_hospitals, haversine_distance, comput
 from websocket_manager import manager
 from audit_log import init_blockchain_table, add_block, get_chain, verify_chain
 from notification_service import dispatch_critical_alerts
-from auth import require_hospital_admin, require_paramedic, require_command_center, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from auth import require_hospital_admin, require_paramedic, require_command_center, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, TokenData
 from middleware import RequestIDMiddleware, RequestTimingMiddleware, RequestLoggingMiddleware, GlobalExceptionMiddleware, SecurityHeadersMiddleware
 from cache import cache
 from logger import get_logger
@@ -54,10 +54,24 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    await seed_data()
+    await init_blockchain_table()
+    cleanup_task = asyncio.create_task(cleanup_stale_reservations_loop())
+    cache.start_cleanup()
+    log.info("AEROVHYN v2.1 started", extra={"middleware": "active", "cache": "active", "lifecycle": "lifespan"})
+    yield
+    cleanup_task.cancel()
+
 app = FastAPI(
     title="AEROVHYN",
     description="Real-Time Hospital Readiness & Ambulance Routing System v2",
     version="2.1.0",
+    lifespan=lifespan,
 )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -75,12 +89,12 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# Request middleware stack (order matters — outermost first)
+# Request middleware stack (order matters — innermost last in add_middleware LIFO)
 app.add_middleware(GlobalExceptionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RequestTimingMiddleware)
-app.add_middleware(RequestIDMiddleware)  # Must be innermost so request_id is set first
+app.add_middleware(RequestIDMiddleware)  # Runs first (outermost) to set request_id
 
 # Simple in-memory rate limit store for IP locking
 failed_logins = {}
@@ -88,16 +102,7 @@ failed_logins = {}
 
 
 
-# --- Startup ---
-
-@app.on_event("startup")
-async def startup():
-    await init_db()
-    await seed_data()
-    await init_blockchain_table()
-    asyncio.create_task(cleanup_stale_reservations_loop())
-    cache.start_cleanup()
-    log.info("AEROVHYN v2.1 started", extra={"middleware": "active", "cache": "active"})
+# --- Startup via Lifespan ---
 
 
 # --- Authentication ---
@@ -146,18 +151,9 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
     if client_ip in failed_logins:
         del failed_logins[client_ip]
 
-    ambulance_db_id = None
-    if user["role"] == "paramedic" and user["ambulance_id"]:
-        try:
-            db_amb = await get_db()
-            c_amb = await db_amb.execute("SELECT id FROM ambulances WHERE name = ?", (user["ambulance_id"],))
-            amb_row = await c_amb.fetchone()
-            if amb_row:
-                ambulance_db_id = amb_row["id"]
-        finally:
-            await db_amb.close()
+    # Bug #57 Side Effect: user["ambulance_id"] is already an integer PK now
+    ambulance_db_id = user["ambulance_id"] if user["role"] == "paramedic" else None
 
-    from datetime import timedelta
     access_token = create_access_token(
         data={
             "sub": user["username"],
@@ -176,17 +172,18 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
         value=f"Bearer {access_token}",
         httponly=True,
         samesite="strict",
-        secure=True,
+        secure=os.getenv("ENV", "development") == "production",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
+    # Bug #48: Standardize ambulance_id as integer in login response to match JWT
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "role": user["role"],
         "full_name": user["full_name"],
         "user_id": user["id"],
-        "ambulance_id": user["ambulance_id"],
+        "ambulance_id": ambulance_db_id,
         "hospital_id": user["hospital_id"],
     }
 
@@ -339,6 +336,9 @@ async def reserve_bed(hospital_id: int):
             (hospital_id,),
         )
         await db.commit()
+        # Bug 50: Invalidate cache after bed reservation
+        if cursor.rowcount > 0:
+            await cache.invalidate_prefix("hospitals:")
         # If rowcount > 0, the bed was successfully reserved
         return cursor.rowcount > 0
     finally:
@@ -354,6 +354,11 @@ async def release_bed(hospital_id: int):
             (hospital_id,),
         )
         await db.commit()
+        
+        # Bug 50: Invalidate cache after bed release
+        if cursor.rowcount > 0:
+            await cache.invalidate_prefix("hospitals:")
+            
         return cursor.rowcount > 0
     finally:
         await db.close()
@@ -453,7 +458,8 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
         # Get settings weights
         s_cursor = await db.execute("SELECT * FROM settings WHERE id = 1")
         s_row = await s_cursor.fetchone()
-        weights = dict(s_row) if s_row else None
+        settings = dict(s_row) if s_row else None
+        max_routing_distance_km = settings.get("max_routing_distance_km", 30.0) if settings else 30.0
 
         rerouted = []
         for conflict in conflicts:
@@ -473,15 +479,19 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
 
             # Priority comparison: higher severity score wins
             # If equal severity, closer ambulance wins
-            new_priority = new_severity.score + (1.0 - min(new_distance_km / 30.0, 1.0)) * 0.1
+            new_priority = new_severity.score + (1.0 - min(new_distance_km / max_routing_distance_km, 1.0)) * 0.1
             conflict_distance = haversine_distance(conflict_lat, conflict_lon, 0, 0)  # Placeholder
 
             # Get actual distance for conflict ambulance
+            # Recalculate correctly for Bug #35
             h_target = next((h for h in all_hospitals if h.id == target_hospital_id), None)
             if h_target:
                 conflict_distance = haversine_distance(conflict_lat, conflict_lon, h_target.lat, h_target.lon)
-
-            conflict_priority = conflict_severity.score + (1.0 - min(conflict_distance / 30.0, 1.0)) * 0.1
+                # Recalculate priority AFTER getting real distance
+                conflict_priority = conflict_severity.score + (1.0 - min(conflict_distance / max_routing_distance_km, 1.0)) * 0.1
+            else:
+                # Fallback if hospital not found (shouldn't happen)
+                conflict_priority = conflict_severity.score
 
             # The lower priority ambulance gets rerouted
             if new_priority >= conflict_priority:
@@ -496,7 +506,7 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
             
             # Re-rank for the rerouted ambulance
             alt_ranked = rank_hospitals(
-                all_hospitals, reroute_severity, reroute_vitals.emergency_type, amb_lat, amb_lon, weights=weights
+                all_hospitals, reroute_severity, reroute_vitals.emergency_type, amb_lat, amb_lon, weights=settings
             )
             
             alt = None
@@ -584,7 +594,9 @@ async def get_hospitals():
         cursor = await db.execute("SELECT * FROM hospitals ORDER BY name")
         rows = await cursor.fetchall()
         result = [row_to_hospital(r) for r in rows]
-        await cache.set("hospitals:all", result, ttl=10)
+        # Pydantic objects are not JSON serializable for Redis mode
+        result_dicts = [h.model_dump() for h in result]
+        await cache.set("hospitals:all", result_dicts, ttl=10)
         return result
     finally:
         await db.close()
@@ -632,6 +644,7 @@ async def create_hospital(hospital: HospitalCreate, token=Depends(require_comman
         await db.commit()
         
         c2 = await db.execute("SELECT * FROM hospitals WHERE id = ?", (h_id,))
+        new_row = await c2.fetchone()
         await db.commit()
         await cache.invalidate_prefix("hospitals:")
         return row_to_hospital(new_row)
@@ -675,8 +688,7 @@ async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depend
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
         row = await cursor.fetchone()
         hospital = row_to_hospital(row)
-
-        cache.invalidate_prefix("hospitals:")
+        await cache.invalidate_prefix("hospitals:")
 
         await manager.broadcast({
             "type": "hospital_update",
@@ -724,7 +736,7 @@ async def delete_hospital(hospital_id: int, token=Depends(require_command_center
 
 @app.post("/api/route", response_model=RouteResponse)
 @limiter.limit("30/minute")
-async def route_ambulance(req: RouteRequest, request: Request, background_tasks: BackgroundTasks, token=Depends(require_paramedic)):
+async def route_ambulance(req: RouteRequest, request: Request, background_tasks: BackgroundTasks, token: TokenData = Depends(require_paramedic)):
     severity = classify_severity(req.vitals)
 
     db = await get_db()
@@ -736,11 +748,11 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
         # Pull weights
         s_cursor = await db.execute("SELECT * FROM settings WHERE id = 1")
         s_row = await s_cursor.fetchone()
-        weights = dict(s_row) if s_row else None
+        settings = dict(s_row) if s_row else None
     finally:
         await db.close()
 
-    ranked = rank_hospitals(hospitals, severity, req.vitals.emergency_type, req.ambulance_lat, req.ambulance_lon, weights=weights)
+    ranked = rank_hospitals(hospitals, severity, req.vitals.emergency_type, req.ambulance_lat, req.ambulance_lon, weights=settings)
 
     if not ranked:
         raise HTTPException(status_code=404, detail="No available hospitals")
@@ -748,8 +760,49 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     best = ranked[0]
 
     # Check for multi-ambulance conflicts BEFORE reserving the bed
+    # We pass 0 as placeholder because we don't have the DB ID yet (INSERT happens below)
+    # But it's better to INSERT first or handle the conflict logic correctly.
+    # We will insert first to get the ID, then resolve conflicts.
+    
+    # Create ambulance record
+    db = await get_db()
+    try:
+        # Bug #32: Update existing instead of INSERT for paramedics
+        # Paramedics always have 1 fixed ambulance assigned in this system design.
+        # We update that record instead of creating a ghost ambulance.
+        # Also update created_at to fix Bug #42 (cleanup loop time reference)
+        current_ambulance_id = token.ambulance_id
+        if not current_ambulance_id:
+            raise HTTPException(status_code=400, detail="Paramedic token missing ambulance_id")
+
+        await db.execute("""
+            UPDATE ambulances 
+            SET status = 'en_route',
+                lat = ?, lon = ?,
+                patient_severity = ?,
+                emergency_type = ?,
+                destination_hospital_id = ?,
+                eta_minutes = ?,
+                patient_vitals = ?,
+                created_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (
+            req.ambulance_lat, req.ambulance_lon,
+            severity.level.value,
+            req.vitals.emergency_type.value,
+            best.hospital.id,
+            round(best.eta_minutes, 1),
+            req.vitals.model_dump_json(),
+            current_ambulance_id
+        ))
+        await db.commit()
+        ambulance_id = current_ambulance_id
+    finally:
+        await db.close()
+
+    # Check for multi-ambulance conflicts AFTER creating the record
     conflict_result = await check_and_resolve_conflicts(
-        new_ambulance_id=0,  # No DB ID yet
+        new_ambulance_id=ambulance_id,
         target_hospital_id=best.hospital.id,
         new_severity=severity,
         new_distance_km=best.distance_km,
@@ -759,27 +812,16 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
         # The new ambulance lost the priority battle — force it to the 2nd best hospital
         if len(ranked) > 1:
             best = ranked[1]
-
-    # Create ambulance record
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """INSERT INTO ambulances (name, lat, lon, patient_severity, destination_hospital_id, status, patient_vitals, eta_minutes)
-               VALUES (?, ?, ?, ?, ?, 'en_route', ?, ?)""",
-            (
-                f"AMB-{int(req.ambulance_lat * 100) % 1000:03d}",
-                req.ambulance_lat,
-                req.ambulance_lon,
-                severity.level.value,
-                best.hospital.id,
-                req.vitals.model_dump_json(),
-                best.eta_minutes,
-            ),
-        )
-        await db.commit()
-        ambulance_id = cursor.lastrowid
-    finally:
-        await db.close()
+            # Update the record we just inserted
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
+                    (best.hospital.id, best.eta_minutes, ambulance_id)
+                )
+                await db.commit()
+            finally:
+                await db.close()
 
     # Reserve bed at destination hospital only if critical
     bed_reserved = False
@@ -889,7 +931,7 @@ async def acknowledge_handoff(hospital_id: int, token=Depends(require_hospital_a
     await manager.broadcast({
         "type": "handoff_acknowledged",
         "hospital_id": hospital_id,
-        "hospital_name": hospital.name,
+        "hospital_name": hospital_name,
         "message": f"{hospital.name} has acknowledged incoming patient",
     })
 
@@ -932,14 +974,15 @@ async def accept_patient(hospital_id: int, ambulance_id: int, token=Depends(requ
         await db.execute("UPDATE ambulances SET status = 'accepted' WHERE id = ?", (ambulance_id,))
         
         # If they held a soft reserve, release it. Always increment the active current_load.
-        cursor = await db.execute("SELECT soft_reserve FROM hospitals WHERE id = ?", (hospital_id,))
-        h_row = await cursor.fetchone()
-        reserve_decrement = 1 if h_row and h_row["soft_reserve"] > 0 else 0
-
-        await db.execute(
-            "UPDATE hospitals SET current_load = current_load + 1, soft_reserve = soft_reserve - ? WHERE id = ?",
-            (reserve_decrement, hospital_id)
-        )
+        # Bug #41: Atomic soft_reserve decrement to avoid TOCTOU
+        await db.execute("""
+            UPDATE hospitals 
+            SET current_load = current_load + 1,
+                soft_reserve = CASE WHEN soft_reserve > 0 THEN soft_reserve - 1 ELSE soft_reserve END
+            WHERE id = ?
+        """, (hospital_id,))
+        
+        await db.commit()
         
         # Get hospital details
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
@@ -1014,8 +1057,10 @@ async def discharge_patient(hospital_id: int, token=Depends(require_hospital_adm
         row = await cursor.fetchone()
         
         if row and row["current_load"] > 0:
-            await db.execute("UPDATE hospitals SET current_load = current_load - 1 WHERE id = ?", (hospital_id,))
+            # Bug 51: Restore icu_beds when a patient cycles out
+            await db.execute("UPDATE hospitals SET current_load = current_load - 1, icu_beds = icu_beds + 1 WHERE id = ?", (hospital_id,))
             await db.commit()
+            await cache.invalidate_prefix("hospitals:")
             return {"status": "success", "message": "Patient discharged"}
         return {"status": "ignored", "message": "Load is already zero"}
     finally:
@@ -1034,16 +1079,29 @@ async def complete_ambulance_run(ambulance_id: int, token=Depends(require_parame
         if not amb:
             raise HTTPException(status_code=404, detail="Ambulance not found")
             
-        if token.role != "command_center" and token.ambulance_id and amb["id"] != token.ambulance_id:
-            raise HTTPException(
-                status_code=403, 
-                detail="You can only complete your own run"
-            )
+        if token.role != "command_center":
+            if not token.ambulance_id or amb["id"] != token.ambulance_id:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="You can only complete your own run"
+                )
 
-        await db.execute(
-            "UPDATE ambulances SET status = 'idle', destination_hospital_id = NULL, patient_vitals = '{}', eta_minutes = 0 WHERE id = ?",
-            (ambulance_id,)
-        )
+        # Bug #37: Release bed if critical run is completing
+        amb_cursor = await db.execute("SELECT patient_severity, destination_hospital_id FROM ambulances WHERE id = ?", (ambulance_id,))
+        amb = await amb_cursor.fetchone()
+        if amb and amb["patient_severity"] == "critical" and amb["destination_hospital_id"]:
+            await release_bed(amb["destination_hospital_id"])
+
+        await db.execute("""
+            UPDATE ambulances 
+            SET status = 'idle', 
+                destination_hospital_id = NULL,
+                patient_severity = NULL,
+                emergency_type = NULL,
+                patient_vitals = '{}',
+                eta_minutes = 0
+            WHERE id = ?
+        """, (ambulance_id,))
         await db.commit()
         return {"status": "completed"}
     finally:
@@ -1079,7 +1137,11 @@ async def create_ambulance(amb: AmbulanceCreate, token=Depends(require_paramedic
 
 
 @app.put("/api/ambulances/{ambulance_id}/position")
-async def update_ambulance_position(ambulance_id: int, pos: AmbulancePositionUpdate, token=Depends(require_paramedic)):
+async def update_ambulance_position(
+    ambulance_id: int, 
+    pos: AmbulancePositionUpdate,
+    token: TokenData = Depends(require_paramedic)
+):
     if token.role != "command_center" and token.ambulance_id != ambulance_id:
         raise HTTPException(
             status_code=403,
@@ -1240,11 +1302,13 @@ async def simulate_overload(hospital_id: int, token=Depends(require_command_cent
         max_cap = row["max_capacity"]
         overloaded = int(max_cap * 0.98)
 
+        # Bug 52: Clear soft_reserve on simulated overload to prevent negative TOCTOU
         await db.execute(
-            "UPDATE hospitals SET current_load = ?, icu_beds = 0 WHERE id = ?",
+            "UPDATE hospitals SET current_load = ?, icu_beds = 0, soft_reserve = 0 WHERE id = ?",
             (overloaded, hospital_id),
         )
         await db.commit()
+        await cache.invalidate_prefix("hospitals:")
 
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
         updated_row = await cursor.fetchone()
@@ -1358,9 +1422,12 @@ async def simulate_reset(token=Depends(require_command_center)):
     """Reset all data and reseed."""
     db = await get_db()
     try:
+        # Bug #34: Delete users and historical_patterns to avoid data corruption
+        await db.execute("DELETE FROM users")
+        await db.execute("DELETE FROM historical_patterns")
         await db.execute("DELETE FROM ambulances")
-        await db.execute("DELETE FROM logs")
         await db.execute("DELETE FROM hospitals")
+        await db.execute("DELETE FROM logs")
         await db.execute("DELETE FROM blockchain")
         await db.commit()
     finally:
@@ -1420,13 +1487,20 @@ async def websocket_endpoint(websocket: WebSocket):
                             lat = message_data.get("lat")
                             lon = message_data.get("lon")
                             
-                            # 1. Save to database
-                            db = await get_db()
-                            try:
-                                await db.execute("UPDATE ambulances SET lat = ?, lon = ? WHERE id = ?", (lat, lon, secure_amb_id))
-                                await db.commit()
-                            finally:
-                                await db.close()
+                            # Bug #39: Validate lat/lon in WS message
+                            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                                    db = await get_db()
+                                    try:
+                                        await db.execute("UPDATE ambulances SET lat = ?, lon = ? WHERE id = ?", (lat, lon, secure_amb_id))
+                                        await db.commit()
+                                    finally:
+                                        await db.close()
+                                    log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
+                                else:
+                                    log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
+                            else:
+                                log.warning(f"Invalid WS coords types for {secure_amb_id}: {type(lat)},{type(lon)}")
                             
                             # 2. Broadcast to dashboards
                             await manager.broadcast({
