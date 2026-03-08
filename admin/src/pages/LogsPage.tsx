@@ -13,7 +13,11 @@ export default function LogsPage() {
         finally { setLoading(false); }
     }, [limit]);
 
-    useEffect(() => { fetchLogs(); }, [fetchLogs]);
+    useEffect(() => {
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 10000);
+        return () => clearInterval(interval);
+    }, [fetchLogs]);
 
 
     const typeColors = {

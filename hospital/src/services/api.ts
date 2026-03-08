@@ -7,7 +7,7 @@ const BASE_URL = '/api';
 
 async function request(endpoint: string, options: any = {}) {
     // Use localStorage token while still allowing credentials (cookies) as fallback
-    const token = localStorage.getItem('aerovhyn_token');
+    const token = localStorage.getItem('hosp_token');
 
     // Initialize headers if not present
     options.headers = options.headers || {};

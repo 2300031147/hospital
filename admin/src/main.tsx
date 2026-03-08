@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'react-hot-toast'
 import './index.css'
-import App from './App.jsx'
+import App from './App'
+import ErrorBoundary from './components/ErrorBoundary';
 import * as Sentry from "@sentry/react";
 
 Sentry.init({
@@ -16,9 +17,11 @@ Sentry.init({
     replaysOnErrorSampleRate: 1.0,
 });
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
     <StrictMode>
-        <App />
-        <Toaster position="top-right" />
+        <ErrorBoundary>
+            <App />
+            <Toaster position="top-right" />
+        </ErrorBoundary>
     </StrictMode>,
 )

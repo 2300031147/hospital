@@ -4,7 +4,7 @@ SQLite async setup with hospitals, ambulances, and logs tables.
 """
 
 import aiosqlite
-import json
+import json           # BUG-1 FIX: was missing, caused NameError in seed_data()
 import asyncpg
 import os
 import re
@@ -27,7 +27,8 @@ class CursorWrapper:
         self.rows = rows or []
         self.lastrowid = lastrowid
         self._idx = 0
-    
+        self.rowcount = len(rows) if rows else 0  # Bug #8 fix: rowcount needed by delete/update endpoints
+
     async def fetchone(self):
         if self._idx < len(self.rows):
             row = self.rows[self._idx]
@@ -44,22 +45,12 @@ class PostgresDBWrapper:
         self.conn = conn
 
     async def execute(self, query: str, params: tuple = ()):
-        # Convert ? to $1, $2, but ONLY if they are not inside single quotes
-        # This is a basic regex approach that handles simple strings.
-        parts = re.split(r"(\?[^']*)", query)
-        pg_query = ""
-        param_idx = 1
-        
-        # Simpler approach: split by ?, but skip if in quotes.
-        # However, for our known queries, we can just be careful.
-        # Let's use a more robust regex that splits by '?' not followed by characters until a closing quote.
-        # Actually, let's just implement the requested fix for Bug #47 properly.
-        
         pg_query = ""
         in_quotes = False
         chunks = []
         current_chunk = ""
         i = 0
+        param_idx = 1
         while i < len(query):
             if query[i] == "'":
                 in_quotes = not in_quotes
@@ -74,9 +65,8 @@ class PostgresDBWrapper:
             i += 1
         chunks.append(current_chunk)
         pg_query = "".join(chunks)
-            
+
         upper_query = pg_query.strip().upper()
-        # Bug #33: Handle DDL via conn.execute instead of conn.fetch
         if upper_query.startswith(("CREATE", "ALTER", "DROP", "TRUNCATE", "PRAGMA")):
             await self.conn.execute(pg_query, *params)
             return CursorWrapper()
@@ -86,27 +76,31 @@ class PostgresDBWrapper:
             pg_query += " RETURNING id"
 
         try:
-            # asyncpg row feels like a dict
             rows = await self.conn.fetch(pg_query, *params)
             lastrowid = None
             if is_insert and rows and 'id' in rows[0]:
                 lastrowid = rows[0]['id']
-            return CursorWrapper(rows=rows, lastrowid=lastrowid)
+            cursor = CursorWrapper(rows=rows, lastrowid=lastrowid)
+            cursor.rowcount = len(rows)
+            return cursor
         except Exception as e:
-            # Simple fallback for executescript-like statements or non-returning statements
             if "does not exist" in str(e) or "RETURNING" in str(e):
                 pg_query = pg_query.replace(" RETURNING id", "")
-                await self.conn.execute(pg_query, *params)
-                return CursorWrapper()
+                result = await self.conn.execute(pg_query, *params)
+                cursor = CursorWrapper()
+                # asyncpg execute returns a string like "UPDATE 1" — parse rowcount
+                try:
+                    cursor.rowcount = int(str(result).split()[-1])
+                except Exception:
+                    cursor.rowcount = 0
+                return cursor
             raise
 
     async def executescript(self, script: str):
-        # asyncpg does not natively run multiple statements if they contain params,
-        # but our executescript is used for pure DDL without params.
         await self.conn.execute(script)
 
     async def commit(self):
-        pass # asyncpg auto-commits by default or depends on tx block
+        pass
 
     async def close(self):
         await self.pool.release(self.conn)
@@ -119,12 +113,11 @@ async def get_db():
     if DATABASE_URL and DATABASE_URL.startswith("postgres"):
         if not _pg_pool:
             async with _pool_lock:
-                if not _pg_pool: # Double-checked locking for Bug #45
+                if not _pg_pool:
                     _pg_pool = await asyncpg.create_pool(DATABASE_URL.replace("postgresql://", "postgres://"))
         conn = await _pg_pool.acquire()
         return PostgresDBWrapper(_pg_pool, conn)
     else:
-        # Fallback strictly to aiosqlite
         db_path = os.getenv("AEROVHYN_DB_PATH", DB_PATH_DEFAULT)
         db = await aiosqlite.connect(db_path)
         db.row_factory = aiosqlite.Row
@@ -134,7 +127,6 @@ async def init_db():
     """Create tables if they don't exist."""
     db = await get_db()
     try:
-        # Alembic will handle schemas for Postgres. We only run script for SQLite.
         if not DATABASE_URL or not DATABASE_URL.startswith("postgres"):
             await db.execute("PRAGMA journal_mode=WAL;")
             await db.executescript("""
@@ -144,7 +136,7 @@ async def init_db():
                     password_hash TEXT NOT NULL,
                     full_name TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'paramedic',
-                    ambulance_id TEXT,
+                    ambulance_id INTEGER,
                     hospital_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -206,38 +198,37 @@ async def init_db():
                 CREATE TABLE IF NOT EXISTS historical_patterns (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     hospital_id INTEGER NOT NULL,
-                    day_of_week INTEGER NOT NULL,  -- 0=Mon, 6=Sun
-                    hour_of_day INTEGER NOT NULL,  -- 0-23
-                    avg_load REAL NOT NULL,        -- e.g., 0.85 = 85% full
-                    avg_turnover_rate REAL DEFAULT 0.05, -- e.g., 5% of beds free up per hour
+                    day_of_week INTEGER NOT NULL,
+                    hour_of_day INTEGER NOT NULL,
+                    avg_load REAL NOT NULL,
+                    avg_turnover_rate REAL DEFAULT 0.05,
+                    UNIQUE(hospital_id, day_of_week, hour_of_day),
                     FOREIGN KEY (hospital_id) REFERENCES hospitals(id)
                 );
 
                 CREATE TABLE IF NOT EXISTS settings (
-                    id INTEGER PRIMARY KEY, -- Removed CHECK (id = 1) for Postgres compatibility if ever run there
+                    id INTEGER PRIMARY KEY,
                     distance_weight REAL DEFAULT 0.2,
                     readiness_weight REAL DEFAULT 0.5,
                     severity_match_weight REAL DEFAULT 0.3,
                     max_routing_distance_km REAL DEFAULT 30.0
                 );
             """)
-            
-            # Initialize default settings row if missing
+
             await db.execute("""
                 INSERT OR IGNORE INTO settings (id, distance_weight, readiness_weight, severity_match_weight, max_routing_distance_km)
                 VALUES (1, 0.2, 0.5, 0.3, 30.0)
             """)
             await db.commit()
         else:
-            # For Postgres, just ensure the settings row exists assuming Alembic was run
             try:
                 await db.execute("""
                     INSERT INTO settings (id, distance_weight, readiness_weight, severity_match_weight, max_routing_distance_km)
                     VALUES (1, 0.2, 0.5, 0.3, 30.0)
                     ON CONFLICT(id) DO NOTHING
                 """)
-            except Exception as e:
-                pass # If table doesn't exist yet, it will fail, which is fine before migration
+            except Exception:
+                pass
     finally:
         await db.close()
 
@@ -246,29 +237,10 @@ async def seed_data():
     """Seed default users and 8 realistic hospitals in a metro area (Hyderabad-inspired coordinates)."""
     db = await get_db()
     try:
-        # --- Seed default users ---
         cursor = await db.execute("SELECT COUNT(*) FROM users")
         row = await cursor.fetchone()
         if row[0] == 0:
-            default_users = [
-                # Command Center / System Admin
-                ("admin", hash_password("admin123"), "System Administrator", "command_center", None, None),
-                # Hospital Admins
-                ("hosp1", hash_password("hosp123"), "Apollo Admin", "hospital_admin", None, 1),
-                ("hosp2", hash_password("hosp123"), "KIMS Admin", "hospital_admin", None, 2),
-                # Field Paramedics / Drivers (using integer FKs for ambulance_id instead of string names)
-                ("paramedic1", hash_password("rescue123"), "Ravi Kumar", "paramedic", 1, None),
-                ("driver1", hash_password("drive123"), "Suresh Reddy", "paramedic", 2, None),
-                ("medic01", hash_password("medic123"), "Priya Sharma", "paramedic", 3, None),
-            ]
-            for u in default_users:
-                await db.execute(
-                    "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
-                    u,
-                )
-            
-            # --- Seed ambulances ---
-            # Paramedics reference these by name in their users.ambulance_id field
+            # BUG-8 FIX: Seed ambulances FIRST so integer FK references are valid
             ambulances = [
                 ("AMB-001", 17.4239, 78.4483),
                 ("AMB-002", 17.4156, 78.4347),
@@ -280,130 +252,105 @@ async def seed_data():
                 )
             await db.commit()
 
+            # BUG-5 FIX: ambulance_id is now INTEGER — use numeric IDs (1, 2, 3)
+            default_users = [
+                ("admin",      hash_password("admin123"),  "System Administrator", "command_center", None, None),
+                ("hosp1",      hash_password("hosp123"),   "Apollo Admin",          "hospital_admin", None, 1),
+                ("hosp2",      hash_password("hosp123"),   "KIMS Admin",            "hospital_admin", None, 2),
+                ("paramedic1", hash_password("rescue123"), "Ravi Kumar",            "paramedic",      1,    None),
+                ("driver1",    hash_password("drive123"),  "Suresh Reddy",          "paramedic",      2,    None),
+                ("medic01",    hash_password("medic123"),  "Priya Sharma",          "paramedic",      3,    None),
+            ]
+            for u in default_users:
+                await db.execute(
+                    "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                    u,
+                )
+            await db.commit()
+
         # --- Seed hospitals ---
         cursor = await db.execute("SELECT COUNT(*) FROM hospitals")
         row = await cursor.fetchone()
         if row[0] > 0:
-            return  # Already seeded
+            return
 
         hospitals = [
             {
                 "name": "Apollo Emergency Hospital",
-                "lat": 17.4239,
-                "lon": 78.4483,
-                "icu_beds": 8,
-                "total_icu_beds": 12,
-                "ventilators": 5,
-                "total_ventilators": 8,
+                "lat": 17.4239, "lon": 78.4483,
+                "icu_beds": 8, "total_icu_beds": 12,
+                "ventilators": 5, "total_ventilators": 8,
                 "specialists": json.dumps(["cardiology", "neurology", "trauma"]),
-                "current_load": 45,
-                "max_capacity": 120,
-                "equipment_score": 0.95,
-                "status": "active",
+                "current_load": 45, "max_capacity": 120,
+                "equipment_score": 0.95, "status": "active",
             },
             {
                 "name": "KIMS Heart Center",
-                "lat": 17.4156,
-                "lon": 78.4347,
-                "icu_beds": 6,
-                "total_icu_beds": 10,
-                "ventilators": 4,
-                "total_ventilators": 6,
+                "lat": 17.4156, "lon": 78.4347,
+                "icu_beds": 6, "total_icu_beds": 10,
+                "ventilators": 4, "total_ventilators": 6,
                 "specialists": json.dumps(["cardiology", "pulmonology"]),
-                "current_load": 62,
-                "max_capacity": 100,
-                "equipment_score": 0.90,
-                "status": "active",
+                "current_load": 62, "max_capacity": 100,
+                "equipment_score": 0.90, "status": "active",
             },
             {
                 "name": "Yashoda Super Specialty",
-                "lat": 17.4401,
-                "lon": 78.4983,
-                "icu_beds": 10,
-                "total_icu_beds": 15,
-                "ventilators": 7,
-                "total_ventilators": 10,
+                "lat": 17.4401, "lon": 78.4983,
+                "icu_beds": 10, "total_icu_beds": 15,
+                "ventilators": 7, "total_ventilators": 10,
                 "specialists": json.dumps(["cardiology", "orthopedics", "neurology", "trauma"]),
-                "current_load": 30,
-                "max_capacity": 150,
-                "equipment_score": 0.92,
-                "status": "active",
+                "current_load": 30, "max_capacity": 150,
+                "equipment_score": 0.92, "status": "active",
             },
             {
                 "name": "Care Hospitals",
-                "lat": 17.4485,
-                "lon": 78.3908,
-                "icu_beds": 4,
-                "total_icu_beds": 8,
-                "ventilators": 3,
-                "total_ventilators": 5,
+                "lat": 17.4485, "lon": 78.3908,
+                "icu_beds": 4, "total_icu_beds": 8,
+                "ventilators": 3, "total_ventilators": 5,
                 "specialists": json.dumps(["trauma", "orthopedics"]),
-                "current_load": 78,
-                "max_capacity": 90,
-                "equipment_score": 0.85,
-                "status": "active",
+                "current_load": 78, "max_capacity": 90,
+                "equipment_score": 0.85, "status": "active",
             },
             {
                 "name": "Continental General Hospital",
-                "lat": 17.4350,
-                "lon": 78.4600,
-                "icu_beds": 3,
-                "total_icu_beds": 6,
-                "ventilators": 2,
-                "total_ventilators": 4,
+                "lat": 17.4350, "lon": 78.4600,
+                "icu_beds": 3, "total_icu_beds": 6,
+                "ventilators": 2, "total_ventilators": 4,
                 "specialists": json.dumps(["general", "pulmonology"]),
-                "current_load": 55,
-                "max_capacity": 80,
-                "equipment_score": 0.78,
-                "status": "active",
+                "current_load": 55, "max_capacity": 80,
+                "equipment_score": 0.78, "status": "active",
             },
             {
                 "name": "Sunshine Trauma Center",
-                "lat": 17.4100,
-                "lon": 78.4750,
-                "icu_beds": 7,
-                "total_icu_beds": 10,
-                "ventilators": 5,
-                "total_ventilators": 7,
+                "lat": 17.4100, "lon": 78.4750,
+                "icu_beds": 7, "total_icu_beds": 10,
+                "ventilators": 5, "total_ventilators": 7,
                 "specialists": json.dumps(["trauma", "neurology", "orthopedics"]),
-                "current_load": 40,
-                "max_capacity": 110,
-                "equipment_score": 0.88,
-                "status": "active",
+                "current_load": 40, "max_capacity": 110,
+                "equipment_score": 0.88, "status": "active",
             },
             {
                 "name": "Medicover Emergency Wing",
-                "lat": 17.4600,
-                "lon": 78.4200,
-                "icu_beds": 5,
-                "total_icu_beds": 8,
-                "ventilators": 3,
-                "total_ventilators": 5,
+                "lat": 17.4600, "lon": 78.4200,
+                "icu_beds": 5, "total_icu_beds": 8,
+                "ventilators": 3, "total_ventilators": 5,
                 "specialists": json.dumps(["cardiology", "general"]),
-                "current_load": 70,
-                "max_capacity": 95,
-                "equipment_score": 0.82,
-                "status": "active",
+                "current_load": 70, "max_capacity": 95,
+                "equipment_score": 0.82, "status": "active",
             },
             {
                 "name": "Global Hospitals",
-                "lat": 17.4000,
-                "lon": 78.4400,
-                "icu_beds": 12,
-                "total_icu_beds": 18,
-                "ventilators": 9,
-                "total_ventilators": 12,
+                "lat": 17.4000, "lon": 78.4400,
+                "icu_beds": 12, "total_icu_beds": 18,
+                "ventilators": 9, "total_ventilators": 12,
                 "specialists": json.dumps(["cardiology", "neurology", "trauma", "pulmonology", "orthopedics"]),
-                "current_load": 25,
-                "max_capacity": 200,
-                "equipment_score": 0.97,
-                "status": "active",
+                "current_load": 25, "max_capacity": 200,
+                "equipment_score": 0.97, "status": "active",
             },
         ]
 
         for h in hospitals:
             try:
-                # Need to use standard execute instead of named binds to match our execute wrapper
                 await db.execute(
                     """INSERT INTO hospitals (name, lat, lon, icu_beds, total_icu_beds,
                        ventilators, total_ventilators, specialists, current_load,
@@ -411,33 +358,33 @@ async def seed_data():
                        VALUES (?, ?, ?, ?, ?,
                        ?, ?, ?, ?,
                        ?, ?, ?)""",
-                    (h['name'], h['lat'], h['lon'], h['icu_beds'], h['total_icu_beds'], 
-                     h['ventilators'], h['total_ventilators'], h['specialists'], h['current_load'], 
+                    (h['name'], h['lat'], h['lon'], h['icu_beds'], h['total_icu_beds'],
+                     h['ventilators'], h['total_ventilators'], h['specialists'], h['current_load'],
                      h['max_capacity'], h['equipment_score'], h['status'])
                 )
             except Exception as e:
-                # Bug #59: Log failure instead of silently swallowing the error
                 from logger import get_logger
                 db_log = get_logger("aerovhyn.db")
                 db_log.warning("hospital_seed_failed", extra={"name": h["name"], "error": str(e)})
-            
-        # Add baseline historical patterns for each seeded hospital
+
+        # Seed historical patterns
         cursor = await db.execute("SELECT id FROM hospitals")
         h_ids = await cursor.fetchall()
         for idx in h_ids:
             h_id = idx["id"]
-            # Seed mock pattern: weekends and evenings have higher loads
             for day in range(7):
                 for hour in range(24):
                     base_load = 0.6
                     if 18 <= hour <= 23: base_load += 0.2
                     if day >= 5: base_load += 0.1
-                    base_turnover = 0.05  # 5% turnover default
-                    
-                    await db.execute(
-                        "INSERT INTO historical_patterns (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate) VALUES (?, ?, ?, ?, ?)",
-                        (h_id, day, hour, min(base_load, 1.0), base_turnover)
-                    )
+                    base_turnover = 0.05
+                    try:
+                        await db.execute(
+                            "INSERT OR IGNORE INTO historical_patterns (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate) VALUES (?, ?, ?, ?, ?)",
+                            (h_id, day, hour, min(base_load, 1.0), base_turnover)
+                        )
+                    except Exception:
+                        pass
 
         await db.commit()
     finally:

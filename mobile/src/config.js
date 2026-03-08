@@ -7,7 +7,7 @@ import Constants from 'expo-constants';
 
 // ─── API Endpoints ───
 export const API_BASE = Constants.expoConfig?.extra?.apiBase ?? 'https://api.yourdomain.com';
-export const WS_BASE = Constants.expoConfig?.extra?.wsBase ?? 'wss://api.yourdomain.com/ws';
+export const WS_BASE = Constants.expoConfig?.extra?.wsBase ?? 'wss://api.yourdomain.com/ws/updates';
 
 // ─── Storage Keys ───
 export const AUTH_TOKEN_KEY = '@aerovhyn_token';

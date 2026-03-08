@@ -720,7 +720,7 @@ async def delete_hospital(hospital_id: int, token=Depends(require_command_center
         
         await db.commit()
         
-        cache.invalidate_prefix("hospitals:")
+        await cache.invalidate_prefix("hospitals:")
 
         await manager.broadcast({
             "type": "alert",
@@ -931,7 +931,7 @@ async def acknowledge_handoff(hospital_id: int, token=Depends(require_hospital_a
     await manager.broadcast({
         "type": "handoff_acknowledged",
         "hospital_id": hospital_id,
-        "hospital_name": hospital_name,
+        "hospital_name": hospital.name,
         "message": f"{hospital.name} has acknowledged incoming patient",
     })
 

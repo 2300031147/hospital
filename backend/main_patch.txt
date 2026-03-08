@@ -1,0 +1,35 @@
+# main.py — 2 targeted fixes
+# Apply these changes manually (or use the patch below)
+
+# ─────────────────────────────────────────────────────────────
+# FIX 1 — acknowledge_handoff: undefined variable hospital_name
+# ─────────────────────────────────────────────────────────────
+# Location: async def acknowledge_handoff(...)
+#
+# FIND (buggy):
+#     await manager.broadcast({
+#         "type": "handoff_acknowledged",
+#         "hospital_id": hospital_id,
+#         "hospital_name": hospital_name,
+#         "message": f"{hospital.name} has acknowledged incoming patient",
+#     })
+#
+# REPLACE WITH (fixed):
+#     await manager.broadcast({
+#         "type": "handoff_acknowledged",
+#         "hospital_id": hospital_id,
+#         "hospital_name": hospital.name,   # ← was: hospital_name (NameError)
+#         "message": f"{hospital.name} has acknowledged incoming patient",
+#     })
+
+
+# ─────────────────────────────────────────────────────────────
+# FIX 2 — delete_hospital: missing await on cache.invalidate_prefix
+# ─────────────────────────────────────────────────────────────
+# Location: async def delete_hospital(...)
+#
+# FIND (buggy):
+#     cache.invalidate_prefix("hospitals:")
+#
+# REPLACE WITH (fixed):
+#     await cache.invalidate_prefix("hospitals:")   # ← missing await added

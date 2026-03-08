@@ -21,7 +21,7 @@ export default function UsersPage() {
         try {
             const data: any = { ...form };
             if (data.hospital_id === '') data.hospital_id = null; else data.hospital_id = Number(data.hospital_id);
-            if (data.ambulance_id === '') data.ambulance_id = null;
+            if (data.ambulance_id === '') data.ambulance_id = null; else data.ambulance_id = Number(data.ambulance_id);
             await createUser(data);
             setShowCreate(false);
             setForm({ username: '', password: '', full_name: '', role: 'paramedic', ambulance_id: '', hospital_id: '' });
@@ -84,7 +84,7 @@ export default function UsersPage() {
                         </div>
                         <div>
                             <label className="label">Ambulance ID</label>
-                            <input className="input" value={form.ambulance_id} onChange={e => setForm(f => ({ ...f, ambulance_id: e.target.value }))} placeholder="AMB-001" />
+                            <input className="input" type="number" value={form.ambulance_id} onChange={e => setForm(f => ({ ...f, ambulance_id: e.target.value }))} placeholder="1" />
                         </div>
                         <div>
                             <label className="label">Hospital ID</label>

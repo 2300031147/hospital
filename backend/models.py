@@ -57,7 +57,6 @@ class HospitalCreate(BaseModel):
     specialists: list[str] = []
     current_load: int = 0
     max_capacity: int = 100
-    # Bug #44: Add range and enum-like validation
     equipment_score: float = Field(0.8, ge=0.0, le=1.0)
     status: str = Field("active", pattern="^(active|inactive|diverted)$")
 
@@ -70,7 +69,6 @@ class SystemSettings(BaseModel):
 
     @model_validator(mode='after')
     def weights_must_sum_to_one(self):
-        # Bug #43: Ensure engine weights sum to 1.0
         total = self.distance_weight + self.readiness_weight + self.severity_match_weight
         if abs(total - 1.0) > 0.01:
             raise ValueError(f'Weights must sum to 1.0, got {round(total, 3)}')
@@ -176,9 +174,10 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     role: str = "paramedic"
-    ambulance_id: Optional[str] = None
+    # BUG-4 FIX: was Optional[str], must be Optional[int] to match integer FK in db_models.py
+    ambulance_id: Optional[int] = None
     hospital_id: Optional[int] = None
-    
+
     @field_validator('password')
     @classmethod
     def password_strength(cls, v):
@@ -203,7 +202,8 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
-    ambulance_id: Optional[str] = None
+    # BUG-4 FIX: was Optional[str], must be Optional[int] to match integer FK
+    ambulance_id: Optional[int] = None
     hospital_id: Optional[int] = None
 
 
@@ -212,7 +212,7 @@ class UserResponse(BaseModel):
     username: str
     full_name: str
     role: str
-    ambulance_id: Optional[str] = None
+    ambulance_id: Optional[int] = None   # BUG-4 FIX: int not str
     hospital_id: Optional[int] = None
     created_at: Union[str, datetime]
 
