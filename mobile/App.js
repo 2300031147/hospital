@@ -5,6 +5,12 @@ import {
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://public@sentry.example.com/3',
+  tracesSampleRate: 1.0,
+});
 
 import { C, LOCATION_TASK_NAME, AUTH_TOKEN_KEY, AUTH_USER_KEY, ACTIVE_AMB_KEY, API_BASE } from './src/config';
 import { getStoredAuth, logout as apiLogout, routeAmbulance, getOSRMRoute } from './src/services/api';
@@ -47,7 +53,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
 });
 
 // ─── Main App ───
-export default function App() {
+function App() {
   const [screen, setScreen] = useState('loading'); // loading | login | vitals | map
   const [authToken, setAuthToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -356,3 +362,5 @@ const styles = StyleSheet.create({
   loadingBrand: { fontSize: 22, fontWeight: '800', color: C.textPrimary, letterSpacing: 6 },
   loadingText: { color: C.textMuted, marginTop: 8, fontSize: 12 },
 });
+
+export default Sentry.wrap(App);

@@ -3,7 +3,7 @@
    Dark/Light themes, CSS variables, typography
    ═══════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 /* ── Reset ── */
 *,
@@ -14,48 +14,48 @@
   box-sizing: border-box;
 }
 
-/* ── Dark Theme (default) ── */
+/* ── Dark Theme (Cyber) ── */
 :root,
 [data-theme="dark"] {
-  --font: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
 
-  --color-bg-primary: #09090b;
-  --color-bg-secondary: #0f0f12;
-  --color-bg-tertiary: #18181b;
-  --color-bg-elevated: #1f1f23;
-  --color-bg-hover: #27272a;
+  --color-bg-primary: #080c14;
+  --color-bg-secondary: #0d1828;
+  --color-bg-tertiary: #0a1520;
+  --color-bg-elevated: rgba(59, 130, 246, 0.06);
+  --color-bg-hover: rgba(59, 130, 246, 0.1);
 
-  --color-text-primary: #e8e8f0;
-  --color-text-secondary: #9898b0;
-  --color-text-muted: #5a5a78;
-  --color-text-disabled: #3a3a52;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #c9d4e8;
+  --color-text-muted: #4a6fa5;
+  --color-text-disabled: #2d4a6b;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-hover: rgba(255, 255, 255, 0.14);
-  --color-border-focus: rgba(0, 212, 170, 0.5);
+  --color-border: rgba(59, 130, 246, 0.12);
+  --color-border-hover: rgba(59, 130, 246, 0.3);
+  --color-border-focus: rgba(96, 165, 250, 0.5);
 
-  --color-accent: #00d4aa;
-  --color-accent-dim: rgba(0, 212, 170, 0.08);
-  --color-accent-hover: #00b894;
+  --color-accent: #3b82f6;
+  --color-accent-dim: rgba(59, 130, 246, 0.08);
+  --color-accent-hover: #60a5fa;
 
-  --color-critical: #ff3b3b;
-  --color-critical-dim: rgba(255, 59, 59, 0.1);
-  --color-warning: #ffaa00;
-  --color-warning-dim: rgba(255, 170, 0, 0.1);
-  --color-success: #00cc66;
-  --color-success-dim: rgba(0, 204, 102, 0.1);
-  --color-info: #3b8bff;
-  --color-info-dim: rgba(59, 139, 255, 0.1);
+  --color-critical: #ef4444;
+  --color-critical-dim: rgba(239, 68, 68, 0.1);
+  --color-warning: #f59e0b;
+  --color-warning-dim: rgba(245, 158, 11, 0.1);
+  --color-success: #22c55e;
+  --color-success-dim: rgba(34, 197, 94, 0.1);
+  --color-info: #a855f7;
+  --color-info-dim: rgba(168, 85, 247, 0.1);
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 0 12px rgba(59, 130, 246, 0.2);
+  --shadow-md: 0 0 16px rgba(59, 130, 246, 0.3);
+  --shadow-lg: 0 0 24px rgba(59, 130, 246, 0.4);
 
   --transition-fast: 0.15s ease;
   --transition-default: 0.25s ease;
@@ -661,6 +661,40 @@ tbody tr:hover {
 }
 
 /* ── Animations ── */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(400%);
+  }
+}
+
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}
+
 @keyframes pulse-dot {
 
   0%,
