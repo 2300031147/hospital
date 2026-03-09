@@ -678,7 +678,7 @@ async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depend
     try:
         fields = []
         values = []
-        for key, val in update.model_dump(exclude_none=True).items():
+        for key, val in update.model_dump(exclude_unset=True).items():
             if key not in ALLOWED_HOSPITAL_FIELDS:
                 raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
             if key == "specialists":
@@ -1378,11 +1378,12 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
 
             new_best = ranked[0]
 
+            bed_reserved = False
             async with db.conn.transaction():
                 # Reserve bed at new hospital (overloaded already wiped ICU beds to 0, so no release needed)
                 # Only reserve if critical (maintains consistency with route_ambulance)
                 if severity.level == SeverityLevel.CRITICAL:
-                    await reserve_bed(new_best.hospital.id, db=db)
+                    bed_reserved = await reserve_bed(new_best.hospital.id, db=db)
 
                 await db.execute(
                     "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
@@ -1453,7 +1454,7 @@ async def websocket_endpoint(websocket: WebSocket):
     if "access_token" in websocket.cookies:
         token_str = websocket.cookies.get("access_token")
         if token_str.startswith("Bearer "):
-            token = token_str.split(" ")[1]
+            token = token_str[7:].strip()
             
     if not token and "token" in websocket.query_params:
         token = websocket.query_params.get("token")
@@ -1500,18 +1501,18 @@ async def websocket_endpoint(websocket: WebSocket):
                                     finally:
                                         await db.close()
                                     log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
+                                    
+                                    # Broadcast valid location to dashboards
+                                    await manager.broadcast({
+                                        "type": "location_update",
+                                        "ambulance_id": secure_amb_id,
+                                        "lat": lat,
+                                        "lon": lon,
+                                    })
                                 else:
                                     log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
                             else:
                                 log.warning(f"Invalid WS coords types for {secure_amb_id}: {type(lat)},{type(lon)}")
-                            
-                            # 2. Broadcast to dashboards
-                            await manager.broadcast({
-                                "type": "location_update",
-                                "ambulance_id": secure_amb_id,
-                                "lat": lat,
-                                "lon": lon,
-                            })
 
                     # Handle ping messages in JSON format
                     elif msg_type == "ping":

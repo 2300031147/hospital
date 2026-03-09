@@ -41,6 +41,7 @@ class Ambulance(Base):
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     patient_severity = Column(String, default='unknown')
+    emergency_type = Column(String, default=None)
     destination_hospital_id = Column(Integer, ForeignKey('hospitals.id'))
     status = Column(String, default='idle')
     patient_vitals = Column(Text, default='{}')
