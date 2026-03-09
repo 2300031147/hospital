@@ -2,11 +2,11 @@
  * AEROVHYN Mobile — API Service
  * Handles all REST calls to the FastAPI backend with JWT auth.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE, AUTH_TOKEN_KEY, AUTH_USER_KEY } from '../config';
+import * as SecureStore from 'expo-secure-store';
+import { API_BASE, OSRM_BASE, AUTH_TOKEN_KEY, AUTH_USER_KEY } from '../config';
 
 async function getToken() {
-    return AsyncStorage.getItem(AUTH_TOKEN_KEY);
+    return SecureStore.getItemAsync(AUTH_TOKEN_KEY);
 }
 
 function authHeaders(token) {
@@ -27,7 +27,10 @@ async function request(endpoint, options = {}) {
     const response = await fetch(url, config);
 
     if (response.status === 401) {
-        await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+        await Promise.all([
+            SecureStore.deleteItemAsync(AUTH_TOKEN_KEY),
+            SecureStore.deleteItemAsync(AUTH_USER_KEY)
+        ]);
         throw new Error('SESSION_EXPIRED');
     }
 
@@ -53,8 +56,8 @@ export async function login(username, password) {
     }
 
     const data = await res.json();
-    await AsyncStorage.setItem(AUTH_TOKEN_KEY, data.access_token);
-    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify({
+    await SecureStore.setItemAsync(AUTH_TOKEN_KEY, data.access_token);
+    await SecureStore.setItemAsync(AUTH_USER_KEY, JSON.stringify({
         fullName: data.full_name || data.user?.full_name,
         role: data.role || data.user?.role,
         userId: data.user_id || data.user?.id,
@@ -64,13 +67,20 @@ export async function login(username, password) {
 }
 
 export async function logout() {
-    await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY, '@active_amb_id']);
+    await Promise.all([
+        SecureStore.deleteItemAsync(AUTH_TOKEN_KEY),
+        SecureStore.deleteItemAsync(AUTH_USER_KEY),
+        SecureStore.deleteItemAsync('@active_amb_id')
+    ]);
 }
 
 export async function getStoredAuth() {
-    const [token, userStr] = await AsyncStorage.multiGet([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
-    if (token[1] && userStr[1]) {
-        return { token: token[1], user: JSON.parse(userStr[1]) };
+    const [token, userStr] = await Promise.all([
+        SecureStore.getItemAsync(AUTH_TOKEN_KEY),
+        SecureStore.getItemAsync(AUTH_USER_KEY)
+    ]);
+    if (token && userStr) {
+        return { token, user: JSON.parse(userStr) };
     }
     return null;
 }
@@ -89,7 +99,7 @@ export async function routeAmbulance(ambulanceLat, ambulanceLon, vitals) {
 
 // ─── OSRM Road Routing (free, no API key needed) ───
 export async function getOSRMRoute(fromLat, fromLon, toLat, toLon) {
-    const url = `https://router.project-osrm.org/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}?overview=full&geometries=geojson`;
+    const url = `${OSRM_BASE}/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}?overview=full&geometries=geojson`;
     const res = await fetch(url);
     const data = await res.json();
 

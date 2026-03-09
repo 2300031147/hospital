@@ -41,7 +41,8 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "expo-secure-store"
     ]
   }
 }

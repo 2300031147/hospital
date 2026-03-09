@@ -29,7 +29,7 @@ def setup_db():
     asyncio.run(_setup())
     # Clear rate limit state between tests so they don't bleed into each other
     import main as main_module
-    main_module.failed_logins.clear()
+    main_module.cache._store.clear()
     # Reset slowapi in-memory storage
     try:
         from main import app
@@ -44,7 +44,7 @@ def setup_db():
 
 def get_auth_token(client, username="paramedic1", password="rescue123"):
     import main as main_module
-    main_module.failed_logins.clear()
+    main_module.cache._store.clear()
     response = client.post("/api/auth/token", json={
         "username": username,
         "password": password

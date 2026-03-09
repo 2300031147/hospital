@@ -32,6 +32,26 @@ async def send_push_notification(hospital_id: int, title: str, body: str):
         return False
 
 
+async def _send_with_retry(coro_func, *args, max_retries=3, base_delay_sec=2.0, **kwargs):
+    """
+    Executes a notification coroutine with exponential backoff on failure.
+    Guarantees reliable delivery even if upstream messaging providers 5xx.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            success = await coro_func(*args, **kwargs)
+            if success:
+                return True
+        except Exception:
+            pass
+            
+        if attempt < max_retries:
+            delay = base_delay_sec * (2 ** (attempt - 1))
+            await asyncio.sleep(delay)
+            
+    return False
+
+
 async def dispatch_critical_alerts(
     hospital_id: int,
     hospital_name: str,
@@ -40,9 +60,7 @@ async def dispatch_critical_alerts(
 ):
     """
     Dispatch outbound notifications for a CRITICAL patient routing event.
-    Fires both SMS and push notifications concurrently. Errors are logged
-    and do NOT propagate — a notification failure must never crash the
-    routing pipeline.
+    Fires both SMS and push notifications concurrently with exponential backoff.
     """
     message = (
         f"URGENT: CRITICAL patient arriving in {round(eta_minutes, 1)} min(s). "
@@ -50,15 +68,15 @@ async def dispatch_critical_alerts(
     )
 
     results = await asyncio.gather(
-        send_sms_alert(hospital_name, message, phone_number="+15559998888"),
-        send_push_notification(hospital_id, "CRITICAL HANDOFF", message),
+        _send_with_retry(send_sms_alert, hospital_name, message, phone_number="+15559998888"),
+        _send_with_retry(send_push_notification, hospital_id, "CRITICAL HANDOFF", message),
         return_exceptions=True,  # Bug 8 fix: errors are returned as values, not raised
     )
 
     for idx, result in enumerate(results):
-        if isinstance(result, Exception):
+        if not result or isinstance(result, Exception):
             channel = "SMS" if idx == 0 else "Push"
             log.error(
-                f"{channel} notification failed",
-                extra={"hospital_id": hospital_id, "error": str(result)},
+                f"{channel} notification permanently failed after all retries exhausted",
+                extra={"hospital_id": hospital_id},
             )

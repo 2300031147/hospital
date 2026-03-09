@@ -1,0 +1,138 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\Hospital\backend
+plugins: anyio-4.12.1
+collected 12 items
+
+test\test_routing.py EEEE                                                [ 33%]
+test\test_engine.py .....FFF                                             [100%]
+
+=================================== ERRORS ====================================
+___________ ERROR at setup of test_route_endpoint_creates_ambulance ___________
+test\test_routing.py:29: in setup_db
+    asyncio.run(_setup())
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:24: in _setup
+    await init_db()
+database.py:182: in init_db
+    db = await get_db()
+         ^^^^^^^^^^^^^^
+database.py:160: in get_db
+    raise RuntimeError(
+E   RuntimeError: DATABASE_URL environment variable is not set. Set it to a PostgreSQL connection string, e.g. postgresql://user:password@host:5432/dbname
+__________ ERROR at setup of test_ambulance_position_update_success ___________
+test\test_routing.py:29: in setup_db
+    asyncio.run(_setup())
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:24: in _setup
+    await init_db()
+database.py:182: in init_db
+    db = await get_db()
+         ^^^^^^^^^^^^^^
+database.py:160: in get_db
+    raise RuntimeError(
+E   RuntimeError: DATABASE_URL environment variable is not set. Set it to a PostgreSQL connection string, e.g. postgresql://user:password@host:5432/dbname
+_____________ ERROR at setup of test_unauthorized_position_update _____________
+test\test_routing.py:29: in setup_db
+    asyncio.run(_setup())
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:24: in _setup
+    await init_db()
+database.py:182: in init_db
+    db = await get_db()
+         ^^^^^^^^^^^^^^
+database.py:160: in get_db
+    raise RuntimeError(
+E   RuntimeError: DATABASE_URL environment variable is not set. Set it to a PostgreSQL connection string, e.g. postgresql://user:password@host:5432/dbname
+___________ ERROR at setup of test_route_updates_existing_ambulance ___________
+test\test_routing.py:29: in setup_db
+    asyncio.run(_setup())
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+test\test_routing.py:24: in _setup
+    await init_db()
+database.py:182: in init_db
+    db = await get_db()
+         ^^^^^^^^^^^^^^
+database.py:160: in get_db
+    raise RuntimeError(
+E   RuntimeError: DATABASE_URL environment variable is not set. Set it to a PostgreSQL connection string, e.g. postgresql://user:password@host:5432/dbname
+================================== FAILURES ===================================
+__________________________ test_rank_hospitals_empty __________________________
+async def functions are not natively supported.
+You need to install a suitable plugin for your async framework, for example:
+  - anyio
+  - pytest-asyncio
+  - pytest-tornasync
+  - pytest-trio
+  - pytest-twisted
+____________________ test_rank_hospitals_inactive_filtered ____________________
+async def functions are not natively supported.
+You need to install a suitable plugin for your async framework, for example:
+  - anyio
+  - pytest-asyncio
+  - pytest-tornasync
+  - pytest-trio
+  - pytest-twisted
+_________________________ test_rank_hospitals_sorting _________________________
+async def functions are not natively supported.
+You need to install a suitable plugin for your async framework, for example:
+  - anyio
+  - pytest-asyncio
+  - pytest-tornasync
+  - pytest-trio
+  - pytest-twisted
+============================== warnings summary ===============================
+test\test_engine.py:43
+  D:\Hospital\backend\test\test_engine.py:43: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+test\test_engine.py:48
+  D:\Hospital\backend\test\test_engine.py:48: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+test\test_engine.py:54
+  D:\Hospital\backend\test\test_engine.py:54: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED test/test_engine.py::test_rank_hospitals_empty - Failed: async def fun...
+FAILED test/test_engine.py::test_rank_hospitals_inactive_filtered - Failed: a...
+FAILED test/test_engine.py::test_rank_hospitals_sorting - Failed: async def f...
+ERROR test/test_routing.py::test_route_endpoint_creates_ambulance - RuntimeEr...
+ERROR test/test_routing.py::test_ambulance_position_update_success - RuntimeE...
+ERROR test/test_routing.py::test_unauthorized_position_update - RuntimeError:...
+ERROR test/test_routing.py::test_route_updates_existing_ambulance - RuntimeEr...
+============== 3 failed, 5 passed, 3 warnings, 4 errors in 0.83s ==============

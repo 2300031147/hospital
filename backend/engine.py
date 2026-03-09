@@ -5,6 +5,8 @@ Core intelligence: severity classification, readiness prediction, ranking, and r
 
 import math
 import json
+import os
+import httpx
 from datetime import datetime, timedelta
 from models import (
     PatientVitals,
@@ -14,6 +16,8 @@ from models import (
     RankedHospital,
     EmergencyType,
 )
+
+OSRM_BASE_URL = os.getenv("OSRM_BASE_URL", "http://router.project-osrm.org")
 
 
 # --- Specialty Mapping ---
@@ -319,7 +323,53 @@ def get_prep_instructions(severity_level: SeverityLevel, emergency_type: Emergen
     return instructions
 
 
-def rank_hospitals(
+async def get_osrm_matrix(amb_lat: float, amb_lon: float, hospitals: list[HospitalInfo]) -> dict:
+    """
+    Fetch real driving distance and duration from OSRM for all active hospitals in one batch request.
+    Returns a dict mapping hospital.id to {"distance_km": float, "duration_min": float}.
+    """
+    if not hospitals:
+        return {}
+
+    coords = [f"{amb_lon},{amb_lat}"]
+    valid_hospitals = []
+    
+    for h in hospitals:
+        if h.status == "active":
+            coords.append(f"{h.lon},{h.lat}")
+            valid_hospitals.append(h)
+            
+    # Stop if no active hospitals
+    if not valid_hospitals:
+        return {}
+
+    coords_str = ";".join(coords)
+    url = f"{OSRM_BASE_URL}/table/v1/driving/{coords_str}?sources=0&annotations=distance,duration"
+    
+    results = {}
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if data.get("code") == "Ok":
+                distances_m = data["distances"][0][1:] # skip self
+                durations_s = data["durations"][0][1:]
+                
+                for idx, h in enumerate(valid_hospitals):
+                    d_m = distances_m[idx]
+                    t_s = durations_s[idx]
+                    if d_m is not None and t_s is not None:
+                        results[h.id] = {"distance_km": d_m / 1000.0, "duration_min": t_s / 60.0}
+    except Exception:
+        # Fallback handled in rank_hospitals if matrix lookup fails
+        pass
+
+    return results
+
+
+async def rank_hospitals(
     hospitals: list[HospitalInfo],
     severity: SeverityResult,
     emergency_type: EmergencyType,
@@ -343,13 +393,24 @@ def rank_hospitals(
         }
 
     ranked = []
+    
+    # 1. Fetch real driving distances in bulk
+    matrix = await get_osrm_matrix(amb_lat, amb_lon, hospitals)
 
     for hospital in hospitals:
         if hospital.status != "active":
             continue
 
-        distance_km = haversine_distance(amb_lat, amb_lon, hospital.lat, hospital.lon)
-        eta = compute_eta(distance_km)
+        # 2. Extract or Fallback distance
+        route = matrix.get(hospital.id, {})
+        if "distance_km" in route and "duration_min" in route:
+            distance_km = route["distance_km"]
+            eta = route["duration_min"]
+        else:
+            # Fallback to straight-line
+            distance_km = haversine_distance(amb_lat, amb_lon, hospital.lat, hospital.lon)
+            eta = compute_eta(distance_km)
+
         readiness = compute_readiness(hospital, severity.level, emergency_type, eta_hours=eta/60)
         dist_score = compute_distance_score(distance_km, weights["max_routing_distance_km"])
         sev_match = compute_severity_match(hospital, severity.level, emergency_type)

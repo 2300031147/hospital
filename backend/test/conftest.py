@@ -21,8 +21,8 @@ def reset_rate_limiter():
     """Reset slowapi in-memory rate limit storage between every test."""
     from main import app
     import main as main_module
-    main_module.failed_logins.clear()
-    limiter = getattr(app.state, "limiter", None)
+    main_module.cache._store.clear()
+    limiter = getattr(app, "state", None) and getattr(app.state, "limiter", None)
     if limiter and hasattr(limiter, "_storage"):
         try:
             limiter._storage.reset()

@@ -46,13 +46,34 @@ export default function HospitalPage({ ws, user }) {
                         if (prev.find(x => x.ambulance_id === h.ambulance_id)) return prev;
                         return [h, ...prev];
                     });
-                    fetchData();
+                    setAmbulances(prev => {
+                        if (prev.find(x => x.id === h.ambulance_id)) return prev;
+                        return [...prev, { id: h.ambulance_id, status: 'en_route', destination_hospital_id: hospitalId }];
+                    });
                 }
             }),
-            ws.on('hospital_update', () => fetchData()),
-            ws.on('ambulance_routed', (data) => { if (data.hospital_id === hospitalId) fetchData(); }),
-            ws.on('patient_accepted', () => fetchData()),
-            ws.on('bed_released', () => fetchData()),
+            ws.on('hospital_update', (data) => {
+                if (data.hospital_id === hospitalId) setHospital(prev => ({ ...prev, ...data }));
+            }),
+            ws.on('ambulance_routed', (data) => {
+                if (data.hospital_id === hospitalId) {
+                    setAmbulances(prev => {
+                        if (prev.find(a => a.id === data.ambulance_id)) return prev;
+                        return [...prev, { id: data.ambulance_id, status: 'en_route', destination_hospital_id: hospitalId }];
+                    });
+                }
+            }),
+            ws.on('patient_accepted', (data) => {
+                if (data.hospital_id === hospitalId) {
+                    setHospital(prev => ({ ...prev, current_load: prev.current_load + 1, icu_beds: Math.max(0, prev.icu_beds - 1), soft_reserve: Math.max(0, (prev.soft_reserve || 0) - 1) }));
+                    setAmbulances(prev => prev.map(a => a.id === data.ambulance_id ? { ...a, status: 'accepted' } : a));
+                }
+            }),
+            ws.on('bed_released', (data) => {
+                if (data.hospital_id === hospitalId) {
+                    setHospital(prev => ({ ...prev, icu_beds: data.icu_beds, soft_reserve: data.soft_reserve }));
+                }
+            }),
             ws.on('location_update', (data) => {
                 setAmbulances(prev => prev.map(a =>
                     a.id === data.ambulance_id ? { ...a, lat: data.lat, lon: data.lon } : a
@@ -70,7 +91,8 @@ export default function HospitalPage({ ws, user }) {
         try {
             await acceptPatient(hospitalId, ambId);
             setHandoffs(prev => prev.filter(h => h.ambulance_id !== ambId));
-            fetchData();
+            setAmbulances(prev => prev.map(a => a.id === ambId ? { ...a, status: 'accepted' } : a));
+            if (hospital) setHospital({ ...hospital, current_load: hospital.current_load + 1, icu_beds: Math.max(0, hospital.icu_beds - 1), soft_reserve: Math.max(0, (hospital.soft_reserve || 0) - 1) });
         } catch (e) { toast.error(e.message); }
     };
 

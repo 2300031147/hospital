@@ -97,9 +97,6 @@ app.add_middleware(RequestTimingMiddleware)
 app.add_middleware(RequestIDMiddleware)  # Runs first (outermost) to set request_id
 
 # Simple in-memory rate limit store for IP locking
-failed_logins = {}
-
-
 
 
 # --- Startup via Lifespan ---
@@ -119,13 +116,12 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
     Returns a JWT access token on success.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
-    now = time.time()
     
-    # Rate Limiting: max 5 failed attempts per 5 minutes
-    global failed_logins
-    failed_logins = {ip: (count, ts) for ip, (count, ts) in failed_logins.items() if now - ts < 300}
+    # Rate Limiting: max 5 failed attempts per 5 minutes using Redis via cache abstraction
+    rate_limit_key = f"failed_logins:{client_ip}"
+    failed_count = await cache.get(rate_limit_key) or 0
     
-    if client_ip in failed_logins and failed_logins[client_ip][0] >= 5:
+    if failed_count >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please try again later."
@@ -139,17 +135,16 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
         await db.close()
 
     if not user or not verify_password(req.password, user["password_hash"]):
-        count, _ = failed_logins.get(client_ip, (0, now))
-        failed_logins[client_ip] = (count + 1, now)
+        # Increment failed count with a rolling 5-minute TTL
+        await cache.set(rate_limit_key, failed_count + 1, ttl=300)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Success: clear failed attempts
-    if client_ip in failed_logins:
-        del failed_logins[client_ip]
+    # Success: clear failed attempts footprint
+    await cache.delete(rate_limit_key)
 
     # Bug #57 Side Effect: user["ambulance_id"] is already an integer PK now
     ambulance_db_id = user["ambulance_id"] if user["role"] == "paramedic" else None
@@ -517,7 +512,7 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
                 return {"reroute_new": True, "reason": f"Conflict with higher-priority ambulance #{conflict_id}"}
             
             # Re-rank for the rerouted ambulance
-            alt_ranked = rank_hospitals(
+            alt_ranked = await rank_hospitals(
                 all_hospitals, reroute_severity, reroute_vitals.emergency_type, amb_lat, amb_lon, weights=settings
             )
             
@@ -767,7 +762,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     finally:
         await db.close()
 
-    ranked = rank_hospitals(hospitals, severity, req.vitals.emergency_type, req.ambulance_lat, req.ambulance_lon, weights=settings)
+    ranked = await rank_hospitals(hospitals, severity, req.vitals.emergency_type, req.ambulance_lat, req.ambulance_lon, weights=settings)
 
     if not ranked:
         raise HTTPException(status_code=404, detail="No available hospitals")
@@ -1095,8 +1090,6 @@ async def complete_ambulance_run(ambulance_id: int, token=Depends(require_parame
         # Bug #37: Release bed if critical run is completing
         # Ensured atomic execution with ambulance status update
         async with db.conn.transaction():
-            amb_cursor = await db.execute("SELECT patient_severity, destination_hospital_id FROM ambulances WHERE id = ?", (ambulance_id,))
-            amb = await amb_cursor.fetchone()
             if amb and amb["patient_severity"] == "critical" and amb["destination_hospital_id"]:
                 await release_bed(amb["destination_hospital_id"], db=db)
 
@@ -1378,7 +1371,7 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
             s_row = await s_cursor.fetchone()
             weights = dict(s_row) if s_row else None
             
-            ranked = rank_hospitals(alt_hospitals, severity, vitals.emergency_type, amb["lat"], amb["lon"], weights=weights)
+            ranked = await rank_hospitals(alt_hospitals, severity, vitals.emergency_type, amb["lat"], amb["lon"], weights=weights)
 
             if not ranked:
                 continue

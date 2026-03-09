@@ -34,13 +34,25 @@ export default function CommandPage({ ws }: { ws: any }) {
         const unsubs = [
             ws.on('ambulance_routed', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'DISPATCH', text: `Unit ${data.ambulance_id} deployed to ${data.hospital_name}` }, ...p].slice(0, 10));
-                debouncedFetch();
+                setAmbulances(p => p.map(a => a.id === data.ambulance_id ? { ...a, status: 'en_route', destination_hospital_id: data.hospital_id } : a));
             }),
             ws.on('reroute', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'REROUTE', text: `Unit ${data.ambulance_id} diverted to ${data.to_hospital_name}` }, ...p].slice(0, 10));
-                debouncedFetch();
+                setAmbulances(p => p.map(a => a.id === data.ambulance_id ? { ...a, status: 'en_route', destination_hospital_id: data.to_hospital_id } : a));
             }),
-            ws.on('hospital_update', () => debouncedFetch()),
+            ws.on('hospital_update', (data: any) => {
+                setHospitals(p => p.map(h => h.id === data.hospital_id ? { ...h, ...data } : h));
+            }),
+            ws.on('patient_accepted', (data: any) => {
+                setHospitals(p => p.map(h => h.id === data.hospital_id ? { ...h, current_load: h.current_load + 1, icu_beds: Math.max(0, h.icu_beds - 1), soft_reserve: Math.max(0, (h.soft_reserve || 0) - 1) } : h));
+                setAmbulances(p => p.map(a => a.id === data.ambulance_id ? { ...a, status: 'accepted' } : a));
+            }),
+            ws.on('bed_released', (data: any) => {
+                setHospitals(p => p.map(h => h.id === data.hospital_id ? { ...h, icu_beds: data.icu_beds, soft_reserve: data.soft_reserve } : h));
+            }),
+            ws.on('hospital_overloaded', (data: any) => {
+                if (data.hospital) setHospitals(p => p.map(h => h.id === data.hospital.id ? data.hospital : h));
+            }),
             ws.on('alert', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'SYS_WARN', text: data.message }, ...p].slice(0, 10));
             }),
