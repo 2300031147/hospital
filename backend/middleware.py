@@ -143,7 +143,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
             "font-src 'self'; "
-            "connect-src 'self' wss: ws:; "
+            "connect-src 'self'; "
             "frame-ancestors 'none'"
         )
         if request.url.scheme == "https":

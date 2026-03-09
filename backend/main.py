@@ -279,7 +279,7 @@ class PasswordReset(BaseModel):
         return v
 
 @app.put("/api/users/{user_id}/password")
-@limiter.limit("5/minute")
+@limiter.limit("3/5minutes")
 async def reset_password(user_id: int, body: PasswordReset, request: Request, token=Depends(require_command_center)):
     db = await get_db()
     try:
