@@ -13,7 +13,7 @@ if not SECRET_KEY:
     )
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 720  # Increased to 720 minutes (12 hours) for shift workers
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour — short-lived tokens reduce exposure from theft
 
 class Token(BaseModel):
     access_token: str

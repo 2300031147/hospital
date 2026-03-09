@@ -67,7 +67,7 @@ async def add_block(data: dict) -> dict:
         # Serialize chain writes with a Postgres advisory lock to prevent
         # concurrent inserts from creating duplicate idx values.
         lock_id = hash("audit_chain") % (2**63 - 1)
-        await db.execute(f"SELECT pg_advisory_lock({lock_id})")
+        await db.execute("SELECT pg_advisory_lock($1)", (lock_id,))
 
         # Get the last block
         cursor = await db.execute("SELECT * FROM blockchain ORDER BY idx DESC LIMIT 1")
@@ -98,7 +98,7 @@ async def add_block(data: dict) -> dict:
     finally:
         lock_id = hash("audit_chain") % (2**63 - 1)
         try:
-            await db.execute(f"SELECT pg_advisory_unlock({lock_id})")
+            await db.execute("SELECT pg_advisory_unlock($1)", (lock_id,))
         except Exception:
             pass
         await db.close()

@@ -28,7 +28,14 @@ const ProtectedRoute = ({ children }) => {
                     <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginBottom: 20 }}>
                         This portal is restricted to Command Center administrators.
                     </p>
-                    <button className="btn btn-primary" onClick={() => { localStorage.clear(); window.location.href = '/login'; }}>
+                    <button className="btn btn-primary" onClick={() => { 
+                        localStorage.removeItem('token'); 
+                        localStorage.removeItem('role'); 
+                        localStorage.removeItem('hospital_id'); 
+                        localStorage.removeItem('username'); 
+                        localStorage.removeItem('full_name'); 
+                        window.location.href = '/login'; 
+                    }}>
                         Sign out & return to login
                     </button>
                 </div>

@@ -21,7 +21,14 @@ const ProtectedRoute = ({ children }) => {
                     <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginBottom: 20 }}>
                         This portal is restricted to Hospital Administrators.
                     </p>
-                    <button className="btn btn-primary" onClick={() => { localStorage.clear(); window.location.href = '/login'; }}>
+                    <button className="btn btn-primary" onClick={() => { 
+                        localStorage.removeItem('hosp_token'); 
+                        localStorage.removeItem('hosp_role'); 
+                        localStorage.removeItem('hosp_hospital_id'); 
+                        localStorage.removeItem('hosp_username'); 
+                        localStorage.removeItem('hosp_full_name'); 
+                        window.location.href = '/login'; 
+                    }}>
                         Sign out & return to login
                     </button>
                 </div>
