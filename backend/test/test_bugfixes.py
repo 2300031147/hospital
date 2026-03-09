@@ -112,10 +112,7 @@ async def test_cache_expired_entries():
     """Verify expired entries are not returned."""
     import time
     c = AsyncTTLCache(default_ttl=1)
-    await c.set("expire_key", "data", ttl=0)
-    # TTL=0 means it expires immediately (time.time() + 0 = now, which is already past)
-    # Small sleep to ensure expiry
-    import asyncio
-    await asyncio.sleep(0.01)
+    # Manually insert an already-expired entry into the store
+    c._store["expire_key"] = ("data", time.time() - 1)
     result = await c.get("expire_key")
     assert result is None
