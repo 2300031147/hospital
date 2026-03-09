@@ -1,11 +1,12 @@
 ============================= test session starts =============================
 platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0
 rootdir: D:\Hospital\backend
+configfile: pytest.ini
 plugins: anyio-4.12.1
 collected 12 items
 
-test\test_routing.py EEEE                                                [ 33%]
-test\test_engine.py .....FFF                                             [100%]
+test\test_engine.py .....FFF                                             [ 66%]
+test\test_routing.py EEEE                                                [100%]
 
 =================================== ERRORS ====================================
 ___________ ERROR at setup of test_route_endpoint_creates_ambulance ___________
@@ -114,6 +115,16 @@ You need to install a suitable plugin for your async framework, for example:
   - pytest-trio
   - pytest-twisted
 ============================== warnings summary ===============================
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\_pytest\config\__init__.py:1428
+  C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\_pytest\config\__init__.py:1428: PytestConfigWarning: Unknown config option: asyncio_default_fixture_loop_scope
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\_pytest\config\__init__.py:1428
+  C:\Users\Ravuri Rithesh\AppData\Local\Programs\Python\Python311\Lib\site-packages\_pytest\config\__init__.py:1428: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
 test\test_engine.py:43
   D:\Hospital\backend\test\test_engine.py:43: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
     @pytest.mark.asyncio
@@ -135,4 +146,4 @@ ERROR test/test_routing.py::test_route_endpoint_creates_ambulance - RuntimeEr...
 ERROR test/test_routing.py::test_ambulance_position_update_success - RuntimeE...
 ERROR test/test_routing.py::test_unauthorized_position_update - RuntimeError:...
 ERROR test/test_routing.py::test_route_updates_existing_ambulance - RuntimeEr...
-============== 3 failed, 5 passed, 3 warnings, 4 errors in 0.83s ==============
+============== 3 failed, 5 passed, 5 warnings, 4 errors in 0.85s ==============

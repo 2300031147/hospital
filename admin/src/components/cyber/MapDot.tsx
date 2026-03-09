@@ -1,4 +1,4 @@
-export function MapDot({ x, y, color, pulse, label, size = 8 }: { x: number, y: number, color: string, pulse?: boolean, label?: string, size?: number }) {
+export function MapDot({ x, y, color, pulse, label, size = 8 }: { key?: string | number, x: number, y: number, color: string, pulse?: boolean, label?: string, size?: number }) {
     return (
         <g>
             {pulse && (

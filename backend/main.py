@@ -1500,18 +1500,18 @@ async def websocket_endpoint(websocket: WebSocket):
                                     finally:
                                         await db.close()
                                     log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
+                                    
+                                    # 2. Broadcast to dashboards (ONLY if valid)
+                                    await manager.broadcast({
+                                        "type": "location_update",
+                                        "ambulance_id": secure_amb_id,
+                                        "lat": lat,
+                                        "lon": lon,
+                                    })
                                 else:
                                     log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
                             else:
                                 log.warning(f"Invalid WS coords types for {secure_amb_id}: {type(lat)},{type(lon)}")
-                            
-                            # 2. Broadcast to dashboards
-                            await manager.broadcast({
-                                "type": "location_update",
-                                "ambulance_id": secure_amb_id,
-                                "lat": lat,
-                                "lon": lon,
-                            })
 
                     # Handle ping messages in JSON format
                     elif msg_type == "ping":
