@@ -7,7 +7,7 @@ REST API + WebSocket + Handoff + Bed Reservation + Conflict Resolution + Analyti
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Depends, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import json
 import asyncio
 import os
@@ -267,8 +267,20 @@ async def delete_user(user_id: int, token=Depends(require_command_center)):
 class PasswordReset(BaseModel):
     new_password: str
 
+    @field_validator('new_password')
+    @classmethod
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain an uppercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain a digit')
+        return v
+
 @app.put("/api/users/{user_id}/password")
-async def reset_password(user_id: int, body: PasswordReset, token=Depends(require_command_center)):
+@limiter.limit("5/minute")
+async def reset_password(user_id: int, body: PasswordReset, request: Request, token=Depends(require_command_center)):
     db = await get_db()
     try:
         hashed_pw = hash_password(body.new_password)
@@ -1292,6 +1304,8 @@ async def update_settings(settings: SystemSettings, token=Depends(require_comman
 @app.post("/api/simulate/overload/{hospital_id}")
 async def simulate_overload(hospital_id: int, token=Depends(require_command_center)):
     """Simulate hospital overload (sets load to 98%, ICU to 0)."""
+    if os.getenv("ENV") == "production":
+        raise HTTPException(status_code=403, detail="Simulation endpoints are disabled in production")
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
@@ -1424,6 +1438,8 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
 @app.post("/api/simulate/reset")
 async def simulate_reset(token=Depends(require_command_center)):
     """Reset all data and reseed."""
+    if os.getenv("ENV") == "production":
+        raise HTTPException(status_code=403, detail="Simulation endpoints are disabled in production")
     db = await get_db()
     try:
         # Bug #34: Delete users and historical_patterns to avoid data corruption

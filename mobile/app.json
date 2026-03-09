@@ -27,8 +27,8 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "apiBase": "http://100.104.158.108:8000",
-      "wsBase": "ws://100.104.158.108:8000/ws",
+      "apiBase": "https://your-api-domain.com",
+      "wsBase": "wss://your-api-domain.com/ws",
       "eas": {
         "projectId": "551d4477-be1b-4065-86d6-4c86218fc73b"
       }

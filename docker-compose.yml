@@ -5,29 +5,36 @@ services:
     environment:
       POSTGRES_DB: aerovhyn
       POSTGRES_USER: aerovhyn
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aerovhyn_secure_pw}
+      # SECURITY: No default fallback — POSTGRES_PASSWORD must be set in .env or environment
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pg_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # SECURITY: Only expose DB port in development; remove or comment out for production
+    # ports:
+    #   - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aerovhyn -d aerovhyn"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - data
 
   redis:
     image: redis:7-alpine
     container_name: aerovhyn_redis
-    ports:
-      - "6379:6379"
+    # SECURITY: Only expose Redis port in development; remove or comment out for production
+    # ports:
+    #   - "6379:6379"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - data
 
   backend:
     build:
@@ -40,13 +47,30 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - AEROVHYN_JWT_SECRET=${AEROVHYN_JWT_SECRET:-AEROVHYN_EDGE_SUPER_SECRET_KEY_999}
-      - DATABASE_URL=postgresql://aerovhyn:${POSTGRES_PASSWORD:-aerovhyn_secure_pw}@postgres:5432/aerovhyn
+      # SECURITY: No default fallback — AEROVHYN_JWT_SECRET must be set in .env or environment
+      # Generate with: openssl rand -hex 32
+      - AEROVHYN_JWT_SECRET=${AEROVHYN_JWT_SECRET:?AEROVHYN_JWT_SECRET must be set}
+      - DATABASE_URL=postgresql://aerovhyn:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/aerovhyn
       - REDIS_URL=redis://redis:6379
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174,http://10.0.2.2:5173}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174}
     ports:
       - "8000:8000"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - data
+      - backend
+
+networks:
+  data:
+    driver: bridge
+  backend:
+    driver: bridge
 
 volumes:
   pg_data:

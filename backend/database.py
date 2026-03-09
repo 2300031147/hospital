@@ -159,8 +159,7 @@ async def get_db() -> PostgresDBWrapper:
     if not DATABASE_URL:
         raise RuntimeError(
             "DATABASE_URL environment variable is not set. "
-            "Set it to a PostgreSQL connection string, e.g. "
-            "postgresql://user:password@host:5432/dbname"
+            "Configure it with a valid PostgreSQL connection string."
         )
 
     if not _pg_pool:
