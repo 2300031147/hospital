@@ -314,46 +314,60 @@ def row_to_hospital(row) -> HospitalInfo:
     )
 
 
-async def log_event(event_type: str, ambulance_id=None, hospital_id=None, score=None, details=""):
-    db = await get_db()
+async def log_event(event_type: str, ambulance_id=None, hospital_id=None, score=None, details="", db=None):
+    close_db = False
+    if db is None:
+        db = await get_db()
+        close_db = True
     try:
         await db.execute(
             "INSERT INTO logs (event_type, ambulance_id, hospital_selected_id, score, details) VALUES (?,?,?,?,?)",
             (event_type, ambulance_id, hospital_id, score, details),
         )
-        await db.commit()
+        if close_db:
+            await db.commit()
     finally:
-        await db.close()
+        if close_db:
+            await db.close()
 
 
-async def reserve_bed(hospital_id: int):
+async def reserve_bed(hospital_id: int, db=None):
     """Reserve an ICU bed at the hospital. Decrements icu_beds, increments soft_reserve."""
-    db = await get_db()
+    close_db = False
+    if db is None:
+        db = await get_db()
+        close_db = True
     try:
         # Atomic update: only updates if icu_beds > 0
         cursor = await db.execute(
             "UPDATE hospitals SET icu_beds = icu_beds - 1, soft_reserve = soft_reserve + 1 WHERE id = ? AND icu_beds > 0",
             (hospital_id,),
         )
-        await db.commit()
+        if close_db:
+            await db.commit()
         # Bug 50: Invalidate cache after bed reservation
         if cursor.rowcount > 0:
             await cache.invalidate_prefix("hospitals:")
         # If rowcount > 0, the bed was successfully reserved
         return cursor.rowcount > 0
     finally:
-        await db.close()
+        if close_db:
+            await db.close()
 
 
-async def release_bed(hospital_id: int):
+async def release_bed(hospital_id: int, db=None):
     """Release a reserved bed back to available."""
-    db = await get_db()
+    close_db = False
+    if db is None:
+        db = await get_db()
+        close_db = True
     try:
         cursor = await db.execute(
             "UPDATE hospitals SET icu_beds = icu_beds + 1, soft_reserve = soft_reserve - 1 WHERE id = ? AND soft_reserve > 0",
             (hospital_id,),
         )
-        await db.commit()
+        if close_db:
+            await db.commit()
         
         # Bug 50: Invalidate cache after bed release
         if cursor.rowcount > 0:
@@ -361,7 +375,8 @@ async def release_bed(hospital_id: int):
             
         return cursor.rowcount > 0
     finally:
-        await db.close()
+        if close_db:
+            await db.close()
 
 
 async def cleanup_stale_reservations_loop():
@@ -389,24 +404,22 @@ async def cleanup_stale_reservations_loop():
                             amb_id = row["id"]
                             hosp_id = row["destination_hospital_id"]
                             
-                            # Update ambulance status
-                            await db.execute("UPDATE ambulances SET status = 'timeout' WHERE id = ?", (amb_id,))
-                            
-                            # Release the bed directly by invoking release_bed logic instead of call to avoid connection overlap issues
-                            if row["patient_severity"] == SeverityLevel.CRITICAL.value:
-                                h_cursor = await db.execute("SELECT soft_reserve FROM hospitals WHERE id = ?", (hosp_id,))
-                                h_row = await h_cursor.fetchone()
-                                if h_row and h_row["soft_reserve"] > 0:
-                                    await db.execute(
-                                        "UPDATE hospitals SET icu_beds = icu_beds + 1, soft_reserve = soft_reserve - 1 WHERE id = ?",
-                                        (hosp_id,)
-                                    )
-                            
-                            # Log the event
-                            await db.execute(
-                                "INSERT INTO logs (event_type, ambulance_id, hospital_selected_id, details) VALUES (?,?,?,?)",
-                                ("reservation_timeout", amb_id, hosp_id, f"Reservation timed out after {round(elapsed_mins, 1)} min without arrival")
-                            )
+                            async with db.conn.transaction():
+                                # Update ambulance status
+                                await db.execute("UPDATE ambulances SET status = 'timeout' WHERE id = ?", (amb_id,))
+                                
+                                # Release the bed directly using release_bed with shared db
+                                if row["patient_severity"] == SeverityLevel.CRITICAL.value:
+                                    await release_bed(hosp_id, db=db)
+                                
+                                # Log the event
+                                await log_event(
+                                    "reservation_timeout", 
+                                    ambulance_id=amb_id, 
+                                    hospital_id=hosp_id, 
+                                    details=f"Reservation timed out after {round(elapsed_mins, 1)} min without arrival",
+                                    db=db
+                                )
                             
                             # Fetch hospital for broadcast
                             h_cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hosp_id,))
@@ -434,12 +447,15 @@ async def cleanup_stale_reservations_loop():
             log.error("Cleanup loop error", extra={"error": str(e)})
 
 
-async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id: int, new_severity: SeverityResult, new_distance_km: float):
+async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id: int, new_severity: SeverityResult, new_distance_km: float, db=None):
     """
     Multi-ambulance conflict resolution.
     If another ambulance is en-route to the same hospital, compare and possibly reroute the lower-priority one.
     """
-    db = await get_db()
+    close_db = False
+    if db is None:
+        db = await get_db()
+        close_db = True
     try:
         cursor = await db.execute(
             "SELECT id, lat, lon, patient_severity, patient_vitals FROM ambulances WHERE destination_hospital_id = ? AND status = 'en_route' AND id != ?",
@@ -477,20 +493,16 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
 
             conflict_severity = classify_severity(conflict_vitals)
 
-            # Priority comparison: higher severity score wins
-            # If equal severity, closer ambulance wins
+            # Priority comparison: higher severity score wins; closer ambulance is tiebreaker
             new_priority = new_severity.score + (1.0 - min(new_distance_km / max_routing_distance_km, 1.0)) * 0.1
-            conflict_distance = haversine_distance(conflict_lat, conflict_lon, 0, 0)  # Placeholder
 
-            # Get actual distance for conflict ambulance
-            # Recalculate correctly for Bug #35
+            # Get actual distance for conflict ambulance to target hospital
             h_target = next((h for h in all_hospitals if h.id == target_hospital_id), None)
             if h_target:
                 conflict_distance = haversine_distance(conflict_lat, conflict_lon, h_target.lat, h_target.lon)
-                # Recalculate priority AFTER getting real distance
                 conflict_priority = conflict_severity.score + (1.0 - min(conflict_distance / max_routing_distance_km, 1.0)) * 0.1
             else:
-                # Fallback if hospital not found (shouldn't happen)
+                # Fallback if hospital not found — should not happen in normal operation
                 conflict_priority = conflict_severity.score
 
             # The lower priority ambulance gets rerouted
@@ -514,9 +526,9 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
                 if potential_alt.hospital.id != target_hospital_id:
                     if reroute_severity.level == SeverityLevel.CRITICAL:
                         # TRY to reserve the bed
-                        success = await reserve_bed(potential_alt.hospital.id)
+                        success = await reserve_bed(potential_alt.hospital.id, db=db)
                         if success:
-                            await release_bed(target_hospital_id)
+                            await release_bed(target_hospital_id, db=db)
                             alt = potential_alt
                             break # Successfully locked a bed, stop searching
                         else:
@@ -530,7 +542,8 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
                     "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
                     (alt.hospital.id, alt.eta_minutes, amb_to_reroute),
                 )
-                await db.commit()
+                if close_db:
+                    await db.commit()
 
                 rerouted.append({
                     "ambulance_id": amb_to_reroute,
@@ -546,6 +559,7 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
                     hospital_id=alt.hospital.id,
                     score=alt.final_score,
                     details=f"Conflict at hospital {target_hospital_id}, rerouted to {alt.hospital.name}",
+                    db=db
                 )
 
                 await manager.broadcast_reroute(
@@ -557,7 +571,8 @@ async def check_and_resolve_conflicts(new_ambulance_id: int, target_hospital_id:
 
         return rerouted if rerouted else None
     finally:
-        await db.close()
+        if close_db:
+            await db.close()
 
 
 # --- Health ---
@@ -764,78 +779,72 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     # But it's better to INSERT first or handle the conflict logic correctly.
     # We will insert first to get the ID, then resolve conflicts.
     
-    # Create ambulance record
+    # Create ambulance record and resolve conflicts atomically
+    current_ambulance_id = token.ambulance_id
+    if not current_ambulance_id:
+        raise HTTPException(status_code=400, detail="Paramedic token missing ambulance_id")
+
     db = await get_db()
     try:
-        # Bug #32: Update existing instead of INSERT for paramedics
-        # Paramedics always have 1 fixed ambulance assigned in this system design.
-        # We update that record instead of creating a ghost ambulance.
-        # Also update created_at to fix Bug #42 (cleanup loop time reference)
-        current_ambulance_id = token.ambulance_id
-        if not current_ambulance_id:
-            raise HTTPException(status_code=400, detail="Paramedic token missing ambulance_id")
+        async with db.conn.transaction():
+            # Bug #32: Update existing instead of INSERT for paramedics
+            # Also update created_at to fix Bug #42 (cleanup loop time reference)
+            await db.execute("""
+                UPDATE ambulances 
+                SET status = 'en_route',
+                    lat = ?, lon = ?,
+                    patient_severity = ?,
+                    emergency_type = ?,
+                    destination_hospital_id = ?,
+                    eta_minutes = ?,
+                    patient_vitals = ?,
+                    created_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                req.ambulance_lat, req.ambulance_lon,
+                severity.level.value,
+                req.vitals.emergency_type.value,
+                best.hospital.id,
+                round(best.eta_minutes, 1),
+                req.vitals.model_dump_json(),
+                current_ambulance_id
+            ))
+            ambulance_id = current_ambulance_id
 
-        await db.execute("""
-            UPDATE ambulances 
-            SET status = 'en_route',
-                lat = ?, lon = ?,
-                patient_severity = ?,
-                emergency_type = ?,
-                destination_hospital_id = ?,
-                eta_minutes = ?,
-                patient_vitals = ?,
-                created_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (
-            req.ambulance_lat, req.ambulance_lon,
-            severity.level.value,
-            req.vitals.emergency_type.value,
-            best.hospital.id,
-            round(best.eta_minutes, 1),
-            req.vitals.model_dump_json(),
-            current_ambulance_id
-        ))
-        await db.commit()
-        ambulance_id = current_ambulance_id
+            # Check for multi-ambulance conflicts AFTER creating the record
+            conflict_result = await check_and_resolve_conflicts(
+                new_ambulance_id=ambulance_id,
+                target_hospital_id=best.hospital.id,
+                new_severity=severity,
+                new_distance_km=best.distance_km,
+                db=db
+            )
+
+            if conflict_result and isinstance(conflict_result, dict) and conflict_result.get("reroute_new"):
+                # The new ambulance lost the priority battle — force it to the 2nd best hospital
+                if len(ranked) > 1:
+                    best = ranked[1]
+                    await db.execute(
+                        "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
+                        (best.hospital.id, best.eta_minutes, ambulance_id)
+                    )
+
+            # Reserve bed at destination hospital only if critical
+            bed_reserved = False
+            if severity.level == SeverityLevel.CRITICAL:
+                bed_reserved = await reserve_bed(best.hospital.id, db=db)
+
+            # Log the routing event
+            await log_event(
+                "ambulance_routed",
+                ambulance_id=ambulance_id,
+                hospital_id=best.hospital.id,
+                score=best.final_score,
+                details=f"Severity: {severity.level.value} ({severity.score}), Dest: {best.hospital.name}, Distance: {best.distance_km}km, ETA: {best.eta_minutes}min",
+                db=db
+            )
     finally:
         await db.close()
-
-    # Check for multi-ambulance conflicts AFTER creating the record
-    conflict_result = await check_and_resolve_conflicts(
-        new_ambulance_id=ambulance_id,
-        target_hospital_id=best.hospital.id,
-        new_severity=severity,
-        new_distance_km=best.distance_km,
-    )
-
-    if conflict_result and isinstance(conflict_result, dict) and conflict_result.get("reroute_new"):
-        # The new ambulance lost the priority battle — force it to the 2nd best hospital
-        if len(ranked) > 1:
-            best = ranked[1]
-            # Update the record we just inserted
-            db = await get_db()
-            try:
-                await db.execute(
-                    "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
-                    (best.hospital.id, best.eta_minutes, ambulance_id)
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-    # Reserve bed at destination hospital only if critical
-    bed_reserved = False
-    if severity.level == SeverityLevel.CRITICAL:
-        bed_reserved = await reserve_bed(best.hospital.id)
-
-    # Log the routing event
-    await log_event(
-        "ambulance_routed",
-        ambulance_id=ambulance_id,
-        hospital_id=best.hospital.id,
-        score=best.final_score,
-        details=f"Severity: {severity.level.value} ({severity.score}), Dest: {best.hospital.name}, Distance: {best.distance_km}km, ETA: {best.eta_minutes}min",
-    )
 
     # Add to blockchain audit trail in the background
     background_tasks.add_task(add_block, {
@@ -970,26 +979,23 @@ async def accept_patient(hospital_id: int, ambulance_id: int, token=Depends(requ
         if amb["status"] != "en_route":
             raise HTTPException(status_code=400, detail="Ambulance is not en route")
 
-        # Update ambulance status to accepted
-        await db.execute("UPDATE ambulances SET status = 'accepted' WHERE id = ?", (ambulance_id,))
+        # Wrap all writes in a single atomic transaction
+        async with db.conn.transaction():
+            # Update ambulance status to accepted
+            await db.execute("UPDATE ambulances SET status = 'accepted' WHERE id = ?", (ambulance_id,))
+            
+            # Decrement soft_reserve, increment current_load — atomic
+            await db.execute("""
+                UPDATE hospitals 
+                SET current_load = current_load + 1,
+                    soft_reserve = CASE WHEN soft_reserve > 0 THEN soft_reserve - 1 ELSE soft_reserve END
+                WHERE id = ?
+            """, (hospital_id,))
         
-        # If they held a soft reserve, release it. Always increment the active current_load.
-        # Bug #41: Atomic soft_reserve decrement to avoid TOCTOU
-        await db.execute("""
-            UPDATE hospitals 
-            SET current_load = current_load + 1,
-                soft_reserve = CASE WHEN soft_reserve > 0 THEN soft_reserve - 1 ELSE soft_reserve END
-            WHERE id = ?
-        """, (hospital_id,))
-        
-        await db.commit()
-        
-        # Get hospital details
+        # Fetch updated hospital details (outside transaction, read-only)
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
         row = await cursor.fetchone()
         hospital = row_to_hospital(row)
-        
-        await db.commit()
     finally:
         await db.close()
     
@@ -1087,22 +1093,23 @@ async def complete_ambulance_run(ambulance_id: int, token=Depends(require_parame
                 )
 
         # Bug #37: Release bed if critical run is completing
-        amb_cursor = await db.execute("SELECT patient_severity, destination_hospital_id FROM ambulances WHERE id = ?", (ambulance_id,))
-        amb = await amb_cursor.fetchone()
-        if amb and amb["patient_severity"] == "critical" and amb["destination_hospital_id"]:
-            await release_bed(amb["destination_hospital_id"])
+        # Ensured atomic execution with ambulance status update
+        async with db.conn.transaction():
+            amb_cursor = await db.execute("SELECT patient_severity, destination_hospital_id FROM ambulances WHERE id = ?", (ambulance_id,))
+            amb = await amb_cursor.fetchone()
+            if amb and amb["patient_severity"] == "critical" and amb["destination_hospital_id"]:
+                await release_bed(amb["destination_hospital_id"], db=db)
 
-        await db.execute("""
-            UPDATE ambulances 
-            SET status = 'idle', 
-                destination_hospital_id = NULL,
-                patient_severity = NULL,
-                emergency_type = NULL,
-                patient_vitals = '{}',
-                eta_minutes = 0
-            WHERE id = ?
-        """, (ambulance_id,))
-        await db.commit()
+            await db.execute("""
+                UPDATE ambulances 
+                SET status = 'idle', 
+                    destination_hospital_id = NULL,
+                    patient_severity = NULL,
+                    emergency_type = NULL,
+                    patient_vitals = '{}',
+                    eta_minutes = 0
+                WHERE id = ?
+            """, (ambulance_id,))
         return {"status": "completed"}
     finally:
         await db.close()
@@ -1378,22 +1385,25 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
 
             new_best = ranked[0]
 
-            # Reserve bed at new hospital (overloaded already wiped ICU beds to 0, so no release needed)
-            bed_reserved = await reserve_bed(new_best.hospital.id)
+            async with db.conn.transaction():
+                # Reserve bed at new hospital (overloaded already wiped ICU beds to 0, so no release needed)
+                # Only reserve if critical (maintains consistency with route_ambulance)
+                if severity.level == SeverityLevel.CRITICAL:
+                    await reserve_bed(new_best.hospital.id, db=db)
 
-            await db.execute(
-                "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
-                (new_best.hospital.id, new_best.eta_minutes, amb["id"]),
-            )
-            await db.commit()
+                await db.execute(
+                    "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
+                    (new_best.hospital.id, new_best.eta_minutes, amb["id"]),
+                )
 
-            await log_event(
-                "ambulance_rerouted",
-                ambulance_id=amb["id"],
-                hospital_id=new_best.hospital.id,
-                score=new_best.final_score,
-                details=f"Rerouted from {overloaded_hospital.name} to {new_best.hospital.name} ({new_best.distance_km}km, ETA: {new_best.eta_minutes}min)",
-            )
+                await log_event(
+                    "ambulance_rerouted",
+                    ambulance_id=amb["id"],
+                    hospital_id=new_best.hospital.id,
+                    score=new_best.final_score,
+                    details=f"Hospital #{hospital_id} overloaded. Rerouted to {new_best.hospital.name} ({new_best.distance_km}km, ETA: {new_best.eta_minutes}min)",
+                    db=db
+                )
 
             await add_block({
                 "event": "AMBULANCE_REROUTED",

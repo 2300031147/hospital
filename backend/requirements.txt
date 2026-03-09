@@ -1,7 +1,6 @@
 fastapi
-uvicorn
+uvicorn[standard]
 gunicorn
-aiosqlite
 asyncpg
 sqlalchemy
 alembic
@@ -16,4 +15,5 @@ python-dotenv
 httpx
 pytest
 pytest-asyncio
-sentry-sdk
+httpx
+sentry-sdk[fastapi]

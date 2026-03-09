@@ -15,7 +15,10 @@ export default function LogsPage() {
 
     useEffect(() => {
         fetchLogs();
-        const interval = setInterval(fetchLogs, 10000);
+        const interval = setInterval(() => {
+            // Pause polling when tab is not visible — avoids background API hammering
+            if (!document.hidden) fetchLogs();
+        }, 10000);
         return () => clearInterval(interval);
     }, [fetchLogs]);
 

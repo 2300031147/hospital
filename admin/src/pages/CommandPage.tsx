@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getHospitals, getAmbulances } from '../services/api';
 import { Ticker } from '../components/cyber/Ticker';
 import { LoadBar } from '../components/cyber/LoadBar';
@@ -19,6 +19,14 @@ export default function CommandPage({ ws }: { ws: any }) {
         finally { setLoading(false); }
     }, []);
 
+    // Debounce WS-triggered fetches — rapid-fire events (routed + reroute + hospital_update)
+    // would otherwise hammer the API. Coalesce into a single call within 500 ms.
+    const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const debouncedFetch = useCallback(() => {
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        debounceTimer.current = setTimeout(fetchData, 500);
+    }, [fetchData]);
+
     useEffect(() => { fetchData(); }, [fetchData]);
 
     useEffect(() => {
@@ -26,19 +34,22 @@ export default function CommandPage({ ws }: { ws: any }) {
         const unsubs = [
             ws.on('ambulance_routed', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'DISPATCH', text: `Unit ${data.ambulance_id} deployed to ${data.hospital_name}` }, ...p].slice(0, 10));
-                fetchData();
+                debouncedFetch();
             }),
             ws.on('reroute', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'REROUTE', text: `Unit ${data.ambulance_id} diverted to ${data.to_hospital_name}` }, ...p].slice(0, 10));
-                fetchData();
+                debouncedFetch();
             }),
-            ws.on('hospital_update', () => fetchData()),
+            ws.on('hospital_update', () => debouncedFetch()),
             ws.on('alert', (data: any) => {
                 setAlerts(p => [{ id: Date.now(), type: 'SYS_WARN', text: data.message }, ...p].slice(0, 10));
             }),
         ];
-        return () => unsubs.forEach((u: any) => u?.());
-    }, [ws, fetchData]);
+        return () => {
+            unsubs.forEach((u: any) => u?.());
+            if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        };
+    }, [ws, debouncedFetch]);
 
     // Map bounds mapping -> abstract relative SVG coordinates
     // Hyderabad approx box

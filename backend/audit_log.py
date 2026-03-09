@@ -64,17 +64,10 @@ async def add_block(data: dict) -> dict:
     """
     db = await get_db()
     try:
-        from database import DATABASE_URL
-        if DATABASE_URL and DATABASE_URL.startswith("postgres"):
-            # Bug 53: Prevent audit chain breaks by enforcing concurrency locks
-            lock_id = hash("audit_chain") % (min(2**63 - 1, 9223372036854775807))
-            
-            # Since psycopg/asyncpg transactions may not be active, we use session lock
-            # Using transaction lock (xact) is safer if the wrapper starts transactions, 
-            # but standard advisory_lock is guaranteed to work across any pg setup
-            await db.execute(f"SELECT pg_advisory_lock({lock_id})")
-        else:
-            await db.execute("BEGIN IMMEDIATE")
+        # Serialize chain writes with a Postgres advisory lock to prevent
+        # concurrent inserts from creating duplicate idx values.
+        lock_id = hash("audit_chain") % (2**63 - 1)
+        await db.execute(f"SELECT pg_advisory_lock({lock_id})")
 
         # Get the last block
         cursor = await db.execute("SELECT * FROM blockchain ORDER BY idx DESC LIMIT 1")
@@ -103,14 +96,11 @@ async def add_block(data: dict) -> dict:
             "hash": block_hash,
         }
     finally:
-        from database import DATABASE_URL
-        if getattr(db, 'conn', None) is not None and DATABASE_URL and DATABASE_URL.startswith("postgres"):
-            lock_id = hash("audit_chain") % (min(2**63 - 1, 9223372036854775807))
-            # Just attempt unlock (swallow any errors if the lock wasn't held or if connection died)
-            try:
-                await db.execute(f"SELECT pg_advisory_unlock({lock_id})")
-            except Exception:
-                pass
+        lock_id = hash("audit_chain") % (2**63 - 1)
+        try:
+            await db.execute(f"SELECT pg_advisory_unlock({lock_id})")
+        except Exception:
+            pass
         await db.close()
 
 
