@@ -91,9 +91,9 @@ export const updateAmbulancePosition = (id, data) =>
 // Analytics
 export const getAnalytics = () => request('/analytics');
 
-// Blockchain / Audit Log
-export const getBlockchain = (limit = 50) => request(`/audit-log?limit=${limit}`);
-export const verifyBlockchain = () => request('/audit-log/verify');
+// Blockchain
+export const getBlockchain = (limit = 50) => request(`/blockchain?limit=${limit}`);
+export const verifyBlockchain = () => request('/blockchain/verify');
 
 // Logs
 export const getLogs = (limit = 50) => request(`/logs?limit=${limit}`);

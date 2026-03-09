@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
 
         localStorage.setItem('hosp_token', access_token);
         localStorage.setItem('hosp_role', role);
-        if (hospital_id != null) localStorage.setItem('hosp_hospital_id', hospital_id);
+        if (hospital_id) localStorage.setItem('hosp_hospital_id', hospital_id);
         if (username) localStorage.setItem('hosp_username', username);
         if (full_name) localStorage.setItem('hosp_full_name', full_name);
 
