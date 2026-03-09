@@ -17,7 +17,7 @@ export const AuthProvider = ({ children }) => {
 
         // Only hydrate if the stored role matches this portal's allowed role
         if (token && role === ALLOWED_ROLE) {
-            setUser({ token, role, hospital_id: hospital_id ? parseInt(hospital_id) : null, username, full_name });
+            setUser({ token, role, hospital_id: hospital_id ? parseInt(hospital_id, 10) : null, username, full_name });
         } else if (token && role && role !== ALLOWED_ROLE) {
             // Wrong role stored — clear it to prevent cross-portal leakage
             localStorage.removeItem('hosp_token');

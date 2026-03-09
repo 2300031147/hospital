@@ -8,8 +8,11 @@ import time
 import asyncio
 import os
 import json
+import logging
 from typing import Any, Optional
 from functools import wraps
+
+log = logging.getLogger("aerovhyn.cache")
 
 REDIS_URL = os.getenv("REDIS_URL")
 
@@ -37,9 +40,9 @@ class AsyncTTLCache:
                 if val:
                     return json.loads(val)
                 return None
-            except Exception:
+            except Exception as e:
                 # Fallback to memory on Redis error for Bug #36
-                pass
+                log.warning("Redis GET failed, falling back to memory", extra={"error": str(e), "key": key})
         else:
             if key in self._store:
                 value, expires_at = self._store[key]
@@ -56,8 +59,8 @@ class AsyncTTLCache:
             try:
                 await self._redis.set(key, json.dumps(value), ex=expiry_sec)
                 # We still set to memory as fallback/backup
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Redis SET failed, falling back to memory", extra={"error": str(e), "key": key})
         else:
             expiry = time.time() + expiry_sec
             self._store[key] = (value, expiry)
@@ -67,8 +70,8 @@ class AsyncTTLCache:
         if self._redis:
             try:
                 await self._redis.delete(key)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Redis DELETE failed", extra={"error": str(e), "key": key})
         else:
             self._store.pop(key, None)
 
@@ -79,8 +82,8 @@ class AsyncTTLCache:
                 keys = await self._redis.keys(f"{prefix}*")
                 if keys:
                     await self._redis.delete(*keys)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Redis invalidate_prefix failed", extra={"error": str(e), "prefix": prefix})
         else:
             keys_to_delete = [k for k in self._store if k.startswith(prefix)]
             for k in keys_to_delete:
