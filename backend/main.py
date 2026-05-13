@@ -353,8 +353,9 @@ async def reserve_bed(hospital_id: int, db=None):
         if close_db:
             await db.commit()
         # Bug 50: Invalidate cache after bed reservation
-        if cursor.rowcount > 0:
+        if cache and cursor.rowcount > 0:
             await cache.invalidate_prefix("hospitals:")
+
         # If rowcount > 0, the bed was successfully reserved
         return cursor.rowcount > 0
     finally:
@@ -377,7 +378,7 @@ async def release_bed(hospital_id: int, db=None):
             await db.commit()
         
         # Bug 50: Invalidate cache after bed release
-        if cursor.rowcount > 0:
+        if cache and cursor.rowcount > 0:
             await cache.invalidate_prefix("hospitals:")
             
         return cursor.rowcount > 0

@@ -116,3 +116,25 @@ async def test_cache_expired_entries():
     c._store["expire_key"] = ("data", time.time() - 1)
     result = await c.get("expire_key")
     assert result is None
+
+# --- Test 5: Bug 50 - Invalidate cache after bed reservation ---
+
+@pytest.mark.asyncio
+async def test_bug50_invalidate_cache_after_bed_reservation():
+    """Bug fix: Invalidate cache after bed reservation."""
+    import inspect
+    from main import reserve_bed
+
+    source = inspect.getsource(reserve_bed)
+    # Check that cache.invalidate_prefix is called within reserve_bed
+    assert "await cache.invalidate_prefix(" in source, "Cache invalidation missing in reserve_bed"
+
+@pytest.mark.asyncio
+async def test_bug50_invalidate_cache_after_bed_release():
+    """Bug fix: Invalidate cache after bed release."""
+    import inspect
+    from main import release_bed
+
+    source = inspect.getsource(release_bed)
+    # Check that cache.invalidate_prefix is called within release_bed
+    assert "await cache.invalidate_prefix(" in source, "Cache invalidation missing in release_bed"
