@@ -1443,11 +1443,11 @@ async def simulate_reset(token=Depends(require_command_center)):
     db = await get_db()
     try:
         # Bug #34: Delete users and historical_patterns to avoid data corruption
+        await db.execute("DELETE FROM logs")
         await db.execute("DELETE FROM users")
         await db.execute("DELETE FROM historical_patterns")
         await db.execute("DELETE FROM ambulances")
         await db.execute("DELETE FROM hospitals")
-        await db.execute("DELETE FROM logs")
         await db.execute("DELETE FROM blockchain")
         await db.commit()
     finally:
