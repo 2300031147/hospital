@@ -13,7 +13,8 @@ slowapi
 redis
 python-dotenv
 httpx
+
 pytest
 pytest-asyncio
-httpx
+
 sentry-sdk[fastapi]
