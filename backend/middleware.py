@@ -6,7 +6,6 @@ Logging, error handling, request timing, security headers, and request ID inject
 import time
 import traceback
 import uuid
-from datetime import datetime
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
