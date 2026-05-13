@@ -39,7 +39,7 @@ from models import (
     UserResponse,
     SystemSettings,
 )
-from engine import classify_severity, rank_hospitals, haversine_distance, compute_eta, get_prep_instructions
+from engine import classify_severity, rank_hospitals, haversine_distance, get_prep_instructions
 from websocket_manager import manager
 from audit_log import init_blockchain_table, add_block, get_chain, verify_chain
 from notification_service import dispatch_critical_alerts
