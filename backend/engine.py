@@ -201,7 +201,18 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
             if isinstance(hospital.last_updated, datetime):
                 last_updated_dt = hospital.last_updated
             else:
-                last_updated_dt = datetime.strptime(str(hospital.last_updated), "%Y-%m-%d %H:%M:%S")
+                dt_str = str(hospital.last_updated)
+                if dt_str.endswith("Z"):
+                    dt_str = dt_str[:-1] + "+00:00"
+                try:
+                    last_updated_dt = datetime.fromisoformat(dt_str)
+                except ValueError:
+                    # Fallback to base format if fractional seconds or other issues occur
+                    last_updated_dt = datetime.strptime(dt_str.split(".")[0], "%Y-%m-%d %H:%M:%S")
+
+            if last_updated_dt.tzinfo is not None:
+                from datetime import timezone
+                last_updated_dt = last_updated_dt.astimezone(timezone.utc).replace(tzinfo=None)
             
             now = datetime.utcnow()
             diff_minutes = (now - last_updated_dt).total_seconds() / 60.0
