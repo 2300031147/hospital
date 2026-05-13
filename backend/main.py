@@ -178,7 +178,7 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
         "role": user["role"],
         "full_name": user["full_name"],
         "user_id": user["id"],
-        "ambulance_id": ambulance_db_id,
+        "ambulance_id": int(ambulance_db_id) if ambulance_db_id is not None else None,
         "hospital_id": user["hospital_id"],
     }
 
