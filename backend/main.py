@@ -1372,6 +1372,10 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
         h_rows = await h_cursor.fetchall()
         alt_hospitals = [row_to_hospital(r) for r in h_rows]
 
+        s_cursor = await db.execute("SELECT * FROM settings WHERE id = 1")
+        s_row = await s_cursor.fetchone()
+        weights = dict(s_row) if s_row else None
+
         for amb in affected:
             try:
                 vitals_data = json.loads(amb["patient_vitals"])
@@ -1380,10 +1384,6 @@ async def check_and_reroute(hospital_id: int, overloaded_hospital: HospitalInfo)
                 continue
 
             severity = classify_severity(vitals)
-            
-            s_cursor = await db.execute("SELECT * FROM settings WHERE id = 1")
-            s_row = await s_cursor.fetchone()
-            weights = dict(s_row) if s_row else None
             
             ranked = await rank_hospitals(alt_hospitals, severity, vitals.emergency_type, amb["lat"], amb["lon"], weights=weights)
 
