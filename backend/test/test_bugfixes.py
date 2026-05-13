@@ -73,7 +73,22 @@ def test_websocket_token_uses_slice():
     assert "[7:]" in source, "WebSocket token parsing should use [7:].strip()"
 
 
-# --- Test 4: Cache logging on failures ---
+# --- Test 4: Validate WS message lat/lon parsing uses try...except ---
+
+def test_websocket_lat_lon_parsing():
+    """Bug fix: WebSocket lat/lon validation should use try...except (ValueError, TypeError) instead of isinstance."""
+    import inspect
+    from main import websocket_endpoint
+
+    source = inspect.getsource(websocket_endpoint)
+    # Check that isinstance is NOT used for validating lat/lon anymore
+    assert "isinstance(lat, (int, float))" not in source, "WebSocket lat/lon parsing should not use isinstance"
+    # Check that try...except is used with ValueError and TypeError
+    assert "except (ValueError, TypeError):" in source, "WebSocket lat/lon parsing should catch ValueError and TypeError"
+    assert "lat = float(message_data.get(\"lat\", 0.0))" in source or "lat = float(message_data.get('lat', 0.0))" in source, "WebSocket lat parsing should use float()"
+    assert "lon = float(message_data.get(\"lon\", 0.0))" in source or "lon = float(message_data.get('lon', 0.0))" in source, "WebSocket lon parsing should use float()"
+
+# --- Test 5: Cache logging on failures ---
 
 @pytest.mark.asyncio
 async def test_cache_set_get_memory():

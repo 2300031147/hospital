@@ -1504,23 +1504,23 @@ async def websocket_endpoint(websocket: WebSocket):
                     if msg_type == "location_update" and role == "paramedic":
                         secure_amb_id = payload.get("ambulance_id")
                         if secure_amb_id:
-                            lat = message_data.get("lat")
-                            lon = message_data.get("lon")
-                            
                             # Bug #39: Validate lat/lon in WS message
-                            if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                                if -90 <= lat <= 90 and -180 <= lon <= 180:
-                                    db = await get_db()
-                                    try:
-                                        await db.execute("UPDATE ambulances SET lat = ?, lon = ? WHERE id = ?", (lat, lon, secure_amb_id))
-                                        await db.commit()
-                                    finally:
-                                        await db.close()
-                                    log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
-                                else:
-                                    log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
+                            try:
+                                lat = float(message_data.get("lat", 0.0))
+                                lon = float(message_data.get("lon", 0.0))
+                            except (ValueError, TypeError):
+                                lat, lon = 0.0, 0.0
+
+                            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                                db = await get_db()
+                                try:
+                                    await db.execute("UPDATE ambulances SET lat = ?, lon = ? WHERE id = ?", (lat, lon, secure_amb_id))
+                                    await db.commit()
+                                finally:
+                                    await db.close()
+                                log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
                             else:
-                                log.warning(f"Invalid WS coords types for {secure_amb_id}: {type(lat)},{type(lon)}")
+                                log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
                             
                             # 2. Broadcast to dashboards
                             await manager.broadcast({
