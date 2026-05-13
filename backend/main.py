@@ -220,6 +220,7 @@ async def create_user(user: UserCreate, token=Depends(require_command_center)):
         await db.close()
 
 ALLOWED_USER_FIELDS = {'full_name', 'role', 'ambulance_id', 'hospital_id'}
+ALLOWED_USER_FIELDS_MAPPING = {field: f"{field} = ?" for field in ALLOWED_USER_FIELDS}
 
 @app.put("/api/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: int, update: UserUpdate, token=Depends(require_command_center)):
@@ -228,16 +229,18 @@ async def update_user(user_id: int, update: UserUpdate, token=Depends(require_co
         fields = []
         values = []
         for key, val in update.model_dump(exclude_unset=True).items():
-            if key not in ALLOWED_USER_FIELDS:
+            if key not in ALLOWED_USER_FIELDS_MAPPING:
                 raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
-            fields.append(f"{key} = ?")
+
+            fields.append(ALLOWED_USER_FIELDS_MAPPING[key])
             values.append(val)
             
         if not fields:
             raise HTTPException(status_code=400, detail="No fields to update")
             
         values.append(user_id)
-        await db.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
+        query = "UPDATE users SET " + ", ".join(fields) + " WHERE id = ?"
+        await db.execute(query, values)
         await db.commit()
         
         cursor = await db.execute("SELECT id, username, full_name, role, ambulance_id, hospital_id, created_at FROM users WHERE id = ?", (user_id,))
@@ -679,6 +682,7 @@ ALLOWED_HOSPITAL_FIELDS = {
     'total_ventilators', 'specialists', 'current_load',
     'max_capacity', 'equipment_score', 'status'
 }
+ALLOWED_HOSPITAL_FIELDS_MAPPING = {field: f"{field} = ?" for field in ALLOWED_HOSPITAL_FIELDS}
 
 @app.put("/api/hospitals/{hospital_id}")
 async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depends(require_hospital_admin)):
@@ -691,24 +695,28 @@ async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depend
         fields = []
         values = []
         for key, val in update.model_dump(exclude_unset=True).items():
-            if key not in ALLOWED_HOSPITAL_FIELDS:
+            if key not in ALLOWED_HOSPITAL_FIELDS_MAPPING:
                 raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
+
+            fields.append(ALLOWED_HOSPITAL_FIELDS_MAPPING[key])
             if key == "specialists":
-                fields.append("specialists = ?")
-                values.append(json.dumps(val))
-            else:
-                fields.append(f"{key} = ?")
-                values.append(val)
+                val = json.dumps(val)
+
+            values.append(val)
 
         if not fields:
             raise HTTPException(status_code=400, detail="No fields to update")
 
         values.append(hospital_id)
-        await db.execute(f"UPDATE hospitals SET {', '.join(fields)} WHERE id = ?", values)
+        query = "UPDATE hospitals SET " + ", ".join(fields) + " WHERE id = ?"
+        await db.execute(query, values)
         await db.commit()
 
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
         row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+
         hospital = row_to_hospital(row)
         await cache.invalidate_prefix("hospitals:")
 
