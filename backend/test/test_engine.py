@@ -63,3 +63,37 @@ async def test_rank_hospitals_sorting():
     assert len(ranked) == 2
     assert ranked[0].hospital.id == 1  # H1 is closer and less loaded
     assert ranked[0].final_score > ranked[1].final_score
+
+def test_compute_readiness_datetime_parsing():
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.utcnow()
+    # Mocking different datetime values for Bug #54
+    dt_variants = [
+        now - timedelta(minutes=40),  # Datetime native
+        (now - timedelta(minutes=40)).replace(tzinfo=timezone.utc),  # Datetime aware
+        (now - timedelta(minutes=40)).strftime("%Y-%m-%d %H:%M:%S"), # SQLite format string
+        (now - timedelta(minutes=40)).strftime("%Y-%m-%d %H:%M:%S.%f"), # SQLite string with micros
+        (now - timedelta(minutes=40)).isoformat() + "Z", # Postgres style ISO with Z
+    ]
+
+    for dt_val in dt_variants:
+        h = HospitalInfo(
+            id=1, name="H", lat=0, lon=0, max_capacity=100, current_load=50,
+            icu_beds=5, total_icu_beds=10, soft_reserve=0, ventilators=2, total_ventilators=2,
+            specialists=["general"], equipment_score=1.0, status="active"
+        )
+        h.last_updated = dt_val
+        # Should apply 20% penalty
+        readiness = compute_readiness(h, SeverityLevel.STABLE, EmergencyType.GENERAL, 0.5)
+
+        # Base readiness without penalty approx:
+        # icu_score(0.5)*0.3 + specialist(1.0)*0.3 + load(1.0 - 50/100)*0.2 + equip(1.0)*0.2
+        # = 0.15 + 0.3 + 0.1 + 0.2 = 0.75
+        # Load prediction modifies it slightly, but since last_updated is > 30 mins ago,
+        # it should apply the 0.8 penalty.
+        # Let's compare with recent last_updated.
+        h_recent = h.model_copy(update={"last_updated": datetime.utcnow()}) if hasattr(h, "model_copy") else h.copy(update={"last_updated": datetime.utcnow()})
+        readiness_recent = compute_readiness(h_recent, SeverityLevel.STABLE, EmergencyType.GENERAL, 0.5)
+
+        assert readiness < readiness_recent, f"Penalty was not applied for format: {type(dt_val)} {dt_val}"
