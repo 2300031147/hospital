@@ -130,6 +130,11 @@ class PostgresDBWrapper:
                 return cursor
             raise
 
+    async def executemany(self, query: str, parameters: list[tuple]):
+        """Execute a query against a list of parameter sequences."""
+        pg_query, _ = self._to_pg(query, ())
+        await self.conn.executemany(pg_query, parameters)
+
     async def executescript(self, script: str):
         """Execute a block of SQL statements (DDL only, no params)."""
         await self.conn.execute(script)
