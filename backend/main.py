@@ -219,8 +219,12 @@ async def create_user(user: UserCreate, token=Depends(require_command_center)):
     finally:
         await db.close()
 
-ALLOWED_USER_FIELDS = {'full_name', 'role', 'ambulance_id', 'hospital_id'}
-ALLOWED_USER_FIELDS_MAPPING = {field: f"{field} = ?" for field in ALLOWED_USER_FIELDS}
+ALLOWED_USER_FIELDS_MAPPING = {
+    "full_name": "full_name = ?",
+    "role": "role = ?",
+    "ambulance_id": "ambulance_id = ?",
+    "hospital_id": "hospital_id = ?",
+}
 
 @app.put("/api/users/{user_id}", response_model=UserResponse)
 async def update_user(user_id: int, update: UserUpdate, token=Depends(require_command_center)):
@@ -677,12 +681,17 @@ async def create_hospital(hospital: HospitalCreate, token=Depends(require_comman
         await db.close()
 
 
-ALLOWED_HOSPITAL_FIELDS = {
-    'icu_beds', 'total_icu_beds', 'ventilators', 
-    'total_ventilators', 'specialists', 'current_load',
-    'max_capacity', 'equipment_score', 'status'
+ALLOWED_HOSPITAL_FIELDS_MAPPING = {
+    "icu_beds": "icu_beds = ?",
+    "total_icu_beds": "total_icu_beds = ?",
+    "ventilators": "ventilators = ?",
+    "total_ventilators": "total_ventilators = ?",
+    "specialists": "specialists = ?",
+    "current_load": "current_load = ?",
+    "max_capacity": "max_capacity = ?",
+    "equipment_score": "equipment_score = ?",
+    "status": "status = ?",
 }
-ALLOWED_HOSPITAL_FIELDS_MAPPING = {field: f"{field} = ?" for field in ALLOWED_HOSPITAL_FIELDS}
 
 @app.put("/api/hospitals/{hospital_id}")
 async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depends(require_hospital_admin)):
