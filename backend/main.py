@@ -220,10 +220,10 @@ async def create_user(user: UserCreate, token=Depends(require_command_center)):
         await db.close()
 
 ALLOWED_USER_FIELDS_MAPPING = {
-    "full_name": "full_name = ?",
-    "role": "role = ?",
-    "ambulance_id": "ambulance_id = ?",
-    "hospital_id": "hospital_id = ?",
+    'full_name': 'full_name = ?',
+    'role': 'role = ?',
+    'ambulance_id': 'ambulance_id = ?',
+    'hospital_id': 'hospital_id = ?'
 }
 
 @app.put("/api/users/{user_id}", response_model=UserResponse)
@@ -682,15 +682,15 @@ async def create_hospital(hospital: HospitalCreate, token=Depends(require_comman
 
 
 ALLOWED_HOSPITAL_FIELDS_MAPPING = {
-    "icu_beds": "icu_beds = ?",
-    "total_icu_beds": "total_icu_beds = ?",
-    "ventilators": "ventilators = ?",
-    "total_ventilators": "total_ventilators = ?",
-    "specialists": "specialists = ?",
-    "current_load": "current_load = ?",
-    "max_capacity": "max_capacity = ?",
-    "equipment_score": "equipment_score = ?",
-    "status": "status = ?",
+    'icu_beds': 'icu_beds = ?',
+    'total_icu_beds': 'total_icu_beds = ?',
+    'ventilators': 'ventilators = ?',
+    'total_ventilators': 'total_ventilators = ?',
+    'specialists': 'specialists = ?',
+    'current_load': 'current_load = ?',
+    'max_capacity': 'max_capacity = ?',
+    'equipment_score': 'equipment_score = ?',
+    'status': 'status = ?'
 }
 
 @app.put("/api/hospitals/{hospital_id}")
