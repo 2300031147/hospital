@@ -794,29 +794,49 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     db = await get_db()
     try:
         async with db.conn.transaction():
-            # Bug #32: Update existing instead of INSERT for paramedics
-            # Also update created_at to fix Bug #42 (cleanup loop time reference)
-            await db.execute("""
-                UPDATE ambulances 
-                SET status = 'en_route',
-                    lat = ?, lon = ?,
-                    patient_severity = ?,
-                    emergency_type = ?,
-                    destination_hospital_id = ?,
-                    eta_minutes = ?,
-                    patient_vitals = ?,
-                    created_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (
-                req.ambulance_lat, req.ambulance_lon,
-                severity.level.value,
-                req.vitals.emergency_type.value,
-                best.hospital.id,
-                round(best.eta_minutes, 1),
-                req.vitals.model_dump_json(),
-                current_ambulance_id
-            ))
-            ambulance_id = current_ambulance_id
+            cursor = await db.execute("SELECT id FROM ambulances WHERE id = ?", (current_ambulance_id,))
+            row = await cursor.fetchone()
+
+            if row:
+                # Bug #32: Update existing instead of INSERT for paramedics
+                # Also update created_at to fix Bug #42 (cleanup loop time reference)
+                await db.execute("""
+                    UPDATE ambulances
+                    SET status = 'en_route',
+                        lat = ?, lon = ?,
+                        patient_severity = ?,
+                        emergency_type = ?,
+                        destination_hospital_id = ?,
+                        eta_minutes = ?,
+                        patient_vitals = ?,
+                        created_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (
+                    req.ambulance_lat, req.ambulance_lon,
+                    severity.level.value,
+                    req.vitals.emergency_type.value,
+                    best.hospital.id,
+                    round(best.eta_minutes, 1),
+                    req.vitals.model_dump_json(),
+                    current_ambulance_id
+                ))
+                ambulance_id = current_ambulance_id
+            else:
+                cursor = await db.execute("""
+                    INSERT INTO ambulances (
+                        id, status, lat, lon, patient_severity, emergency_type,
+                        destination_hospital_id, eta_minutes, patient_vitals, created_at
+                    ) VALUES (?, 'en_route', ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    current_ambulance_id,
+                    req.ambulance_lat, req.ambulance_lon,
+                    severity.level.value,
+                    req.vitals.emergency_type.value,
+                    best.hospital.id,
+                    round(best.eta_minutes, 1),
+                    req.vitals.model_dump_json()
+                ))
+                ambulance_id = current_ambulance_id
 
             # Check for multi-ambulance conflicts AFTER creating the record
             conflict_result = await check_and_resolve_conflicts(
