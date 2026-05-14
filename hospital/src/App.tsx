@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import useWebSocket from './hooks/useWebSocket';
+import { useWebSocket } from 'shared';
 import LoginPage from './pages/LoginPage';
 import HospitalPage from './pages/HospitalPage';
 
