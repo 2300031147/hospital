@@ -225,25 +225,29 @@ ALLOWED_USER_FIELDS = {'full_name', 'role', 'ambulance_id', 'hospital_id'}
 async def update_user(user_id: int, update: UserUpdate, token=Depends(require_command_center)):
     db = await get_db()
     try:
-        fields = []
-        values = []
-        for key, val in update.model_dump(exclude_unset=True).items():
-            if key not in ALLOWED_USER_FIELDS:
-                raise HTTPException(status_code=400, detail=f"Invalid field: {key}")
-            fields.append(f"{key} = ?")
-            values.append(val)
+        cursor = await db.execute("SELECT id, username, full_name, role, ambulance_id, hospital_id, created_at FROM users WHERE id = ?", (user_id,))
+        current_user = await cursor.fetchone()
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
             
-        if not fields:
+        update_data = update.model_dump(exclude_unset=True)
+        if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
             
-        values.append(user_id)
-        await db.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
+        # Merge existing data with updates
+        new_full_name = update_data.get("full_name", current_user["full_name"])
+        new_role = update_data.get("role", current_user["role"])
+        new_ambulance_id = update_data.get("ambulance_id", current_user["ambulance_id"])
+        new_hospital_id = update_data.get("hospital_id", current_user["hospital_id"])
+
+        await db.execute(
+            "UPDATE users SET full_name = ?, role = ?, ambulance_id = ?, hospital_id = ? WHERE id = ?",
+            (new_full_name, new_role, new_ambulance_id, new_hospital_id, user_id)
+        )
         await db.commit()
         
         cursor = await db.execute("SELECT id, username, full_name, role, ambulance_id, hospital_id, created_at FROM users WHERE id = ?", (user_id,))
         updated = await cursor.fetchone()
-        if not updated:
-            raise HTTPException(status_code=404, detail="User not found")
         return dict(updated)
     finally:
         await db.close()
