@@ -116,3 +116,13 @@ async def test_cache_expired_entries():
     c._store["expire_key"] = ("data", time.time() - 1)
     result = await c.get("expire_key")
     assert result is None
+
+def test_verify_token_uses_slice():
+    """Bug fix: verify_token extraction should use [7:].strip() not split(' ')."""
+    import inspect
+    from auth import verify_token
+
+    source = inspect.getsource(verify_token)
+    assert 'split(" ")' not in source, "verify_token token parsing should not use split(' ')"
+    assert "split(' ')" not in source, "verify_token token parsing should not use split(' ')"
+    assert "[7:]" in source, "verify_token token parsing should use [7:].strip()"
