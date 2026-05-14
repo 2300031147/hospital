@@ -77,11 +77,13 @@ class ConnectionManager:
         """Accept a WebSocket connection and register with metadata."""
         # Bug #61: Limit unhandled websocket spawns
         MAX_WS_CONNECTIONS = int(os.getenv("MAX_WS_CONNECTIONS", "500"))
+
+        await websocket.accept()
+
         if len(self.active_connections) >= MAX_WS_CONNECTIONS:
             await websocket.close(code=1008, reason="Connection limit reached")
             return
 
-        await websocket.accept()
         conn_info = {
             "ws": websocket,
             "role": role,

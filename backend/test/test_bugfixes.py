@@ -73,7 +73,42 @@ def test_websocket_token_uses_slice():
     assert "[7:]" in source, "WebSocket token parsing should use [7:].strip()"
 
 
-# --- Test 4: Cache logging on failures ---
+# --- Test 4: Limit unhandled websocket spawns ---
+
+class MockWebSocket:
+    def __init__(self):
+        self.accepted = False
+        self.closed_code = None
+
+    async def accept(self):
+        self.accepted = True
+
+    async def close(self, code=1000, reason=None):
+        if not self.accepted:
+            raise RuntimeError("Cannot close an unaccepted websocket!")
+        self.closed_code = code
+
+@pytest.mark.asyncio
+async def test_websocket_limit(monkeypatch):
+    """Bug fix: websocket.accept() must be called before websocket.close() in connect."""
+    from websocket_manager import ConnectionManager
+    monkeypatch.setenv("MAX_WS_CONNECTIONS", "1")
+    manager = ConnectionManager()
+
+    # Connect first one (should be accepted)
+    ws1 = MockWebSocket()
+    await manager.connect(ws1, role="paramedic", hospital_id=1, username="test1")
+    assert ws1.accepted
+    assert ws1.closed_code is None
+
+    # Connect second one (should hit limit)
+    ws2 = MockWebSocket()
+    await manager.connect(ws2, role="paramedic", hospital_id=1, username="test2")
+    assert ws2.accepted
+    assert ws2.closed_code == 1008
+
+
+# --- Test 5: Cache logging on failures ---
 
 @pytest.mark.asyncio
 async def test_cache_set_get_memory():
