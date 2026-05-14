@@ -756,11 +756,8 @@ async def delete_hospital(hospital_id: int, token=Depends(require_command_center
 
 # --- Routing (Core Pipeline) ---
 
-@app.post("/api/route", response_model=RouteResponse)
-@limiter.limit("30/minute")
-async def route_ambulance(req: RouteRequest, request: Request, background_tasks: BackgroundTasks, token: TokenData = Depends(require_paramedic)):
-    severity = classify_severity(req.vitals)
-
+async def _fetch_routing_data() -> tuple[list[HospitalInfo], dict | None]:
+    """Helper: Fetch active hospitals and system settings for routing."""
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM hospitals WHERE status = 'active'")
@@ -771,26 +768,22 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
         s_cursor = await db.execute("SELECT * FROM settings WHERE id = 1")
         s_row = await s_cursor.fetchone()
         settings = dict(s_row) if s_row else None
+
+        return hospitals, settings
     finally:
         await db.close()
 
-    ranked = await rank_hospitals(hospitals, severity, req.vitals.emergency_type, req.ambulance_lat, req.ambulance_lon, weights=settings)
-
-    if not ranked:
-        raise HTTPException(status_code=404, detail="No available hospitals")
-
-    best = ranked[0]
-
-    # Check for multi-ambulance conflicts BEFORE reserving the bed
-    # We pass 0 as placeholder because we don't have the DB ID yet (INSERT happens below)
-    # But it's better to INSERT first or handle the conflict logic correctly.
-    # We will insert first to get the ID, then resolve conflicts.
+async def _update_ambulance_and_resolve_conflicts(
+    ambulance_id: int,
+    req: RouteRequest,
+    severity: SeverityResult,
+    ranked: list[RankedHospital],
+    best: RankedHospital
+) -> tuple[int, bool, RankedHospital, dict | None]:
+    """Helper: Update ambulance, resolve conflicts, reserve bed, and log event."""
+    bed_reserved = False
+    conflict_result = None
     
-    # Create ambulance record and resolve conflicts atomically
-    current_ambulance_id = token.ambulance_id
-    if not current_ambulance_id:
-        raise HTTPException(status_code=400, detail="Paramedic token missing ambulance_id")
-
     db = await get_db()
     try:
         async with db.conn.transaction():
@@ -814,9 +807,8 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                 best.hospital.id,
                 round(best.eta_minutes, 1),
                 req.vitals.model_dump_json(),
-                current_ambulance_id
+                ambulance_id
             ))
-            ambulance_id = current_ambulance_id
 
             # Check for multi-ambulance conflicts AFTER creating the record
             conflict_result = await check_and_resolve_conflicts(
@@ -837,7 +829,6 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                     )
 
             # Reserve bed at destination hospital only if critical
-            bed_reserved = False
             if severity.level == SeverityLevel.CRITICAL:
                 bed_reserved = await reserve_bed(best.hospital.id, db=db)
 
@@ -850,9 +841,21 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                 details=f"Severity: {severity.level.value} ({severity.score}), Dest: {best.hospital.name}, Distance: {best.distance_km}km, ETA: {best.eta_minutes}min",
                 db=db
             )
+
+            return ambulance_id, bed_reserved, best, conflict_result
     finally:
         await db.close()
 
+async def _dispatch_post_routing_tasks(
+    background_tasks: BackgroundTasks,
+    ambulance_id: int,
+    req: RouteRequest,
+    severity: SeverityResult,
+    best: RankedHospital,
+    bed_reserved: bool,
+    conflict_result: dict | None
+):
+    """Helper: Dispatch background tasks and broadcast routing updates."""
     # Add to blockchain audit trail in the background
     background_tasks.add_task(add_block, {
         "event": "ROUTING_DECISION",
@@ -920,6 +923,36 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
             "message": f"⚡ Conflict resolved: ambulance redistributed from hospital #{best.hospital.id}",
             "details": conflict_result,
         })
+
+
+@app.post("/api/route", response_model=RouteResponse)
+@limiter.limit("30/minute")
+async def route_ambulance(req: RouteRequest, request: Request, background_tasks: BackgroundTasks, token: TokenData = Depends(require_paramedic)):
+    if not token.ambulance_id:
+        raise HTTPException(status_code=400, detail="Paramedic token missing ambulance_id")
+
+    severity = classify_severity(req.vitals)
+    hospitals, settings = await _fetch_routing_data()
+
+    ranked = await rank_hospitals(
+        hospitals, severity, req.vitals.emergency_type,
+        req.ambulance_lat, req.ambulance_lon, weights=settings
+    )
+
+    if not ranked:
+        raise HTTPException(status_code=404, detail="No available hospitals")
+
+    best = ranked[0]
+
+    # Create ambulance record and resolve conflicts atomically
+    ambulance_id, bed_reserved, best, conflict_result = await _update_ambulance_and_resolve_conflicts(
+        token.ambulance_id, req, severity, ranked, best
+    )
+
+    # Dispatch background tasks and broadcast updates
+    await _dispatch_post_routing_tasks(
+        background_tasks, ambulance_id, req, severity, best, bed_reserved, conflict_result
+    )
 
     return RouteResponse(
         ambulance_id=ambulance_id,
