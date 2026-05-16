@@ -77,7 +77,10 @@ async def verify_token(request: Request) -> TokenData:
         from database import get_db
         db = await get_db()
         try:
-            cursor = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
+            if user_id is not None:
+                cursor = await db.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            else:
+                cursor = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
             if not await cursor.fetchone():
                 raise credentials_exception
         finally:
