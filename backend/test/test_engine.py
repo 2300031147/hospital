@@ -9,10 +9,43 @@ from engine import (
 from models import SeverityLevel, HospitalInfo, EmergencyType
 
 
-def test_haversine_distance():
-    # Known distance test (e.g., two points in a city ~11km apart)
-    dist = haversine_distance(17.3850, 78.4867, 17.4401, 78.3489)
-    assert 15.0 <= dist <= 17.0
+import math
+
+def test_haversine_distance_same_point():
+    # Distance to itself should be 0.0
+    dist = haversine_distance(17.3850, 78.4867, 17.3850, 78.4867)
+    assert dist == 0.0
+
+def test_haversine_distance_known_cities():
+    # Known distance test (Hyderabad local points ~15km apart)
+    dist_hyd = haversine_distance(17.3850, 78.4867, 17.4401, 78.3489)
+    assert 15.0 <= dist_hyd <= 17.0
+
+    # Distance between New York (40.7128, -74.0060) and London (51.5074, -0.1278)
+    # is approximately 5570 km
+    dist_ny_ldn = haversine_distance(40.7128, -74.0060, 51.5074, -0.1278)
+    assert 5500.0 <= dist_ny_ldn <= 5600.0
+
+def test_haversine_distance_commutativity():
+    lat1, lon1 = 40.7128, -74.0060
+    lat2, lon2 = 51.5074, -0.1278
+    dist1 = haversine_distance(lat1, lon1, lat2, lon2)
+    dist2 = haversine_distance(lat2, lon2, lat1, lon1)
+    assert math.isclose(dist1, dist2, rel_tol=1e-9)
+
+def test_haversine_distance_poles():
+    # North Pole (90, 0) to South Pole (-90, 0)
+    # Expected distance: half of Earth's circumference = pi * R = 3.14159 * 6371 = 20015 km
+    dist = haversine_distance(90.0, 0.0, -90.0, 0.0)
+    expected = math.pi * 6371.0
+    assert math.isclose(dist, expected, rel_tol=1e-5)
+
+def test_haversine_distance_equator():
+    # Two points on equator, 90 degrees apart (0, 0) and (0, 90)
+    # Expected distance: quarter of Earth's circumference = (pi / 2) * R = 10007.5 km
+    dist = haversine_distance(0.0, 0.0, 0.0, 90.0)
+    expected = (math.pi / 2) * 6371.0
+    assert math.isclose(dist, expected, rel_tol=1e-5)
 
 def test_compute_distance_score():
     assert compute_distance_score(0, 30.0) == 1.0
