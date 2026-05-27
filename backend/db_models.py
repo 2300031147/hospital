@@ -11,7 +11,6 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     role = Column(String, nullable=False, default='paramedic')
-    # Bug #57: Convert ambulance_id to FK integer instead of string collision
     ambulance_id = Column(Integer, ForeignKey('ambulances.id'))
     hospital_id = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
