@@ -23,7 +23,7 @@ import Header from './src/components/Header';
 
 // ─── Background Location Task ───
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
-  if (error) { console.error('BG Location Error:', error); return; }
+  if (error) { return; }
   if (!data) return;
 
   const { locations } = data;
@@ -48,7 +48,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
       })
     });
   } catch (err) {
-    console.log('BG Task Error:', err);
   }
 });
 
@@ -169,7 +168,6 @@ function App() {
             },
           });
         } catch (e) {
-          console.log('Background location start failed:', e);
         }
 
         sub = await Location.watchPositionAsync(
