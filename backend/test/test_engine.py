@@ -21,9 +21,20 @@ def test_compute_distance_score():
     assert compute_distance_score(40, 30.0) == 0.0
 
 def test_compute_eta():
+    # Normal cases
+    assert compute_eta(10, 50.0) == 12.0
+    assert compute_eta(25) == 30.0  # default speed 50km/h
+
+    # Edge cases - zero distance
+    assert compute_eta(0, 50.0) == 0.0
     assert compute_eta(0) == 0.0
-    assert compute_eta(40) > 0.0
-    assert compute_eta(40) == 48.0
+
+    # Edge cases - zero speed
+    assert compute_eta(10, 0) == 0.0
+
+    # Edge cases - negative values
+    assert compute_eta(-5, 50.0) == 0.0
+    assert compute_eta(10, -10.0) == 0.0
 
 def test_compute_readiness_no_capacity():
     h = HospitalInfo(id=1, name="H", lat=0, lon=0, max_capacity=100, current_load=100, icu_beds=5, total_icu_beds=5, soft_reserve=0, ventilators=2, total_ventilators=2, specialists=[], equipment_score=1.0, status="active")
