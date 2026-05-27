@@ -352,6 +352,7 @@ async def reserve_bed(hospital_id: int, db=None):
         )
         if close_db:
             await db.commit()
+
         if cursor.rowcount > 0:
             await cache.invalidate_prefix("hospitals:")
         # If rowcount > 0, the bed was successfully reserved
@@ -375,6 +376,7 @@ async def release_bed(hospital_id: int, db=None):
         if close_db:
             await db.commit()
         
+
         if cursor.rowcount > 0:
             await cache.invalidate_prefix("hospitals:")
             
