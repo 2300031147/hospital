@@ -7,7 +7,7 @@ import time
 import traceback
 import uuid
 from datetime import datetime
-from fastapi import Request, Response
+from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
