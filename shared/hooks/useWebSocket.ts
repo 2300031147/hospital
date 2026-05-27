@@ -33,7 +33,6 @@ export default function useWebSocket() {
             ws.onopen = () => {
                 setConnected(true);
                 reconnectAttemptRef.current = 0;
-                console.log('[WS] Connected');
 
                 // Start heartbeat — send ping every 25s
                 if (heartbeatRef.current) clearInterval(heartbeatRef.current);
@@ -68,7 +67,6 @@ export default function useWebSocket() {
                 // Exponential backoff: 1s, 2s, 4s, 8s... up to 15s
                 const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 15000);
                 reconnectAttemptRef.current += 1;
-                console.log(`[WS] Disconnected (code=${event.code}). Reconnecting in ${delay / 1000}s...`);
 
                 reconnectTimerRef.current = setTimeout(connect, delay);
             };
