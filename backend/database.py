@@ -130,6 +130,19 @@ class PostgresDBWrapper:
                 return cursor
             raise
 
+    async def executemany(self, query: str, seq_of_params: list[tuple]):
+        if not seq_of_params:
+            return
+
+        pg_query, _ = self._to_pg(query, seq_of_params[0])
+        upper = pg_query.strip().upper()
+
+        if "INSERT OR IGNORE" in query.upper() or "INSERT OR IGNORE" in pg_query.upper():
+            if "ON CONFLICT" not in upper:
+                pg_query += " ON CONFLICT DO NOTHING"
+
+        await self.conn.executemany(pg_query, seq_of_params)
+
     async def executescript(self, script: str):
         """Execute a block of SQL statements (DDL only, no params)."""
         await self.conn.execute(script)
@@ -220,11 +233,10 @@ async def seed_data():
                 ("driver1",    hash_password("drive123"),  "Suresh Reddy",          "paramedic",      2,    None),
                 ("medic01",    hash_password("medic123"),  "Priya Sharma",          "paramedic",      3,    None),
             ]
-            for u in default_users:
-                await db.execute(
-                    "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
-                    u,
-                )
+            await db.executemany(
+                "INSERT INTO users (username, password_hash, full_name, role, ambulance_id, hospital_id) VALUES (?,?,?,?,?,?)",
+                default_users,
+            )
             await db.commit()
 
         # Seed hospitals (idempotent)
