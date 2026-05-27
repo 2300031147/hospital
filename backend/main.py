@@ -653,16 +653,19 @@ async def create_hospital(hospital: HospitalCreate, token=Depends(require_comman
         
         # Initial historical seeding
         h_id = cursor.lastrowid
+        patterns = []
         for day in range(7):
             for hour in range(24):
                 base_load = 0.6
                 if 18 <= hour <= 23: base_load += 0.2
                 if day >= 5: base_load += 0.1
                 base_turnover = 0.05
-                await db.execute(
-                    "INSERT INTO historical_patterns (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate) VALUES (?, ?, ?, ?, ?)",
-                    (h_id, day, hour, min(base_load, 1.0), base_turnover)
-                )
+                patterns.append((h_id, day, hour, min(base_load, 1.0), base_turnover))
+
+        await db.executemany(
+            "INSERT INTO historical_patterns (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate) VALUES (?, ?, ?, ?, ?)",
+            patterns
+        )
         await db.commit()
         
         c2 = await db.execute("SELECT * FROM hospitals WHERE id = ?", (h_id,))

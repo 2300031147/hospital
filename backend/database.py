@@ -130,6 +130,25 @@ class PostgresDBWrapper:
                 return cursor
             raise
 
+    async def executemany(self, query: str, params_list: list[tuple]):
+        """Execute the same query with multiple sets of parameters."""
+        if not params_list:
+            return
+
+        # Use the first param tuple to translate query to asyncpg syntax
+        pg_query, _ = self._to_pg(query, params_list[0])
+        upper = pg_query.strip().upper()
+
+        if "INSERT OR IGNORE" in query.upper() or "INSERT OR IGNORE" in pg_query.upper():
+            if "ON CONFLICT" not in upper:
+                pg_query += " ON CONFLICT DO NOTHING"
+
+        # Ensure all parameters are processed through _to_pg if needed
+        # (currently _to_pg just returns params unmodified, but this keeps it consistent)
+        processed_params = [self._to_pg(query, p)[1] for p in params_list]
+
+        await self.conn.executemany(pg_query, processed_params)
+
     async def executescript(self, script: str):
         """Execute a block of SQL statements (DDL only, no params)."""
         await self.conn.execute(script)
