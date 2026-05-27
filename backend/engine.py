@@ -33,6 +33,43 @@ EMERGENCY_SPECIALTY_MAP = {
 }
 
 
+def _evaluate_spo2(vitals: PatientVitals) -> tuple[float, list[str]]:
+    if vitals.spo2 < 85:
+        return 0.35, [f"Dangerously low SpO2: {vitals.spo2}%"]
+    elif vitals.spo2 < 92:
+        return 0.15, [f"Low SpO2: {vitals.spo2}%"]
+    return 0.0, []
+
+def _evaluate_bp(vitals: PatientVitals) -> tuple[float, list[str]]:
+    if vitals.systolic_bp < 90:
+        return 0.30, [f"Hypotension: BP {vitals.systolic_bp} mmHg"]
+    elif vitals.systolic_bp > 180:
+        return 0.20, [f"Hypertensive crisis: BP {vitals.systolic_bp} mmHg"]
+    return 0.0, []
+
+def _evaluate_hr(vitals: PatientVitals) -> tuple[float, list[str]]:
+    if vitals.heart_rate > 150:
+        return 0.20, [f"Severe tachycardia: {vitals.heart_rate} BPM"]
+    elif vitals.heart_rate < 40:
+        return 0.25, [f"Severe bradycardia: {vitals.heart_rate} BPM"]
+    elif vitals.heart_rate > 120:
+        return 0.10, [f"Tachycardia: {vitals.heart_rate} BPM"]
+    return 0.0, []
+
+def _evaluate_age(vitals: PatientVitals) -> tuple[float, list[str]]:
+    if vitals.age > 70:
+        return 0.08, [f"Elderly patient: age {vitals.age}"]
+    elif vitals.age < 5:
+        return 0.08, [f"Pediatric patient: age {vitals.age}"]
+    return 0.0, []
+
+def _evaluate_emergency_type(vitals: PatientVitals) -> tuple[float, list[str]]:
+    if vitals.emergency_type in (EmergencyType.CARDIAC, EmergencyType.NEUROLOGICAL):
+        return 0.10, [f"High-risk emergency type: {vitals.emergency_type.value}"]
+    elif vitals.emergency_type in (EmergencyType.TRAUMA, EmergencyType.BURN):
+        return 0.05, [f"Trauma/burn emergency: {vitals.emergency_type.value}"]
+    return 0.0, []
+
 def classify_severity(vitals: PatientVitals) -> SeverityResult:
     """
     Rule-based severity classification.
@@ -48,48 +85,18 @@ def classify_severity(vitals: PatientVitals) -> SeverityResult:
     score = 0.0
     reasons = []
 
-    # SpO2 check
-    if vitals.spo2 < 85:
-        score += 0.35
-        reasons.append(f"Dangerously low SpO2: {vitals.spo2}%")
-    elif vitals.spo2 < 92:
-        score += 0.15
-        reasons.append(f"Low SpO2: {vitals.spo2}%")
+    evaluators = [
+        _evaluate_spo2,
+        _evaluate_bp,
+        _evaluate_hr,
+        _evaluate_age,
+        _evaluate_emergency_type
+    ]
 
-    # Blood pressure check
-    if vitals.systolic_bp < 90:
-        score += 0.30
-        reasons.append(f"Hypotension: BP {vitals.systolic_bp} mmHg")
-    elif vitals.systolic_bp > 180:
-        score += 0.20
-        reasons.append(f"Hypertensive crisis: BP {vitals.systolic_bp} mmHg")
-
-    # Heart rate check
-    if vitals.heart_rate > 150:
-        score += 0.20
-        reasons.append(f"Severe tachycardia: {vitals.heart_rate} BPM")
-    elif vitals.heart_rate < 40:
-        score += 0.25
-        reasons.append(f"Severe bradycardia: {vitals.heart_rate} BPM")
-    elif vitals.heart_rate > 120:
-        score += 0.10
-        reasons.append(f"Tachycardia: {vitals.heart_rate} BPM")
-
-    # Age modifier
-    if vitals.age > 70:
-        score += 0.08
-        reasons.append(f"Elderly patient: age {vitals.age}")
-    elif vitals.age < 5:
-        score += 0.08
-        reasons.append(f"Pediatric patient: age {vitals.age}")
-
-    # Emergency type modifier
-    if vitals.emergency_type in (EmergencyType.CARDIAC, EmergencyType.NEUROLOGICAL):
-        score += 0.10
-        reasons.append(f"High-risk emergency type: {vitals.emergency_type.value}")
-    elif vitals.emergency_type in (EmergencyType.TRAUMA, EmergencyType.BURN):
-        score += 0.05
-        reasons.append(f"Trauma/burn emergency: {vitals.emergency_type.value}")
+    for evaluator in evaluators:
+        s, r = evaluator(vitals)
+        score += s
+        reasons.extend(r)
 
     # Clamp score
     score = min(score, 1.0)
