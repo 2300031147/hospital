@@ -1071,7 +1071,8 @@ async def discharge_patient(hospital_id: int, token=Depends(require_hospital_adm
         
         if row and row["current_load"] > 0:
             # Bug 51: Restore icu_beds when a patient cycles out
-            await db.execute("UPDATE hospitals SET current_load = current_load - 1, icu_beds = icu_beds + 1 WHERE id = ?", (hospital_id,))
+            # Release both the physical ICU bed and any stale soft_reserve
+            await db.execute("UPDATE hospitals SET current_load = current_load - 1, icu_beds = icu_beds + 1, soft_reserve = MAX(0, soft_reserve - 1) WHERE id = ?", (hospital_id,))
             await db.commit()
             await cache.invalidate_prefix("hospitals:")
             return {"status": "success", "message": "Patient discharged"}
