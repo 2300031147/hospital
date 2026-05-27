@@ -146,7 +146,6 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
     # Success: clear failed attempts footprint
     await cache.delete(rate_limit_key)
 
-    # Bug #57 Side Effect: user["ambulance_id"] is already an integer PK now
     ambulance_db_id = user["ambulance_id"] if user["role"] == "paramedic" else None
 
     access_token = create_access_token(
