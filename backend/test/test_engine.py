@@ -15,15 +15,37 @@ def test_haversine_distance():
     assert 15.0 <= dist <= 17.0
 
 def test_compute_distance_score():
+    # Edge cases and zeros
     assert compute_distance_score(0, 30.0) == 1.0
-    assert compute_distance_score(15, 30.0) == 0.5
+    assert compute_distance_score(-10, 30.0) == 1.0
+
+    # Boundary and beyond
     assert compute_distance_score(30, 30.0) == 0.0
     assert compute_distance_score(40, 30.0) == 0.0
 
+    # Standard values
+    assert compute_distance_score(15, 30.0) == 0.5
+    assert compute_distance_score(10, 30.0) == 0.6667
+
+    # Custom max distance
+    assert compute_distance_score(20, 100.0) == 0.8
+    assert compute_distance_score(100, 100.0) == 0.0
+    assert compute_distance_score(150, 100.0) == 0.0
+
 def test_compute_eta():
+    # Zeros and negatives
     assert compute_eta(0) == 0.0
-    assert compute_eta(40) > 0.0
+    assert compute_eta(-10) == 0.0
+    assert compute_eta(40, 0) == 0.0
+    assert compute_eta(40, -10) == 0.0
+
+    # Standard values
     assert compute_eta(40) == 48.0
+    assert compute_eta(25) == 30.0
+
+    # Custom speeds
+    assert compute_eta(40, 80.0) == 30.0
+    assert compute_eta(15, 60.0) == 15.0
 
 def test_compute_readiness_no_capacity():
     h = HospitalInfo(id=1, name="H", lat=0, lon=0, max_capacity=100, current_load=100, icu_beds=5, total_icu_beds=5, soft_reserve=0, ventilators=2, total_ventilators=2, specialists=[], equipment_score=1.0, status="active")
