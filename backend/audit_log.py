@@ -6,7 +6,6 @@ Each routing decision is a "block" linked to the previous one by hash.
 
 import hashlib
 import json
-import time
 from datetime import datetime, timezone
 
 from database import get_db
