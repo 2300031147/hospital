@@ -4,7 +4,6 @@ Core intelligence: severity classification, readiness prediction, ranking, and r
 """
 
 import math
-import json
 import os
 import httpx
 from datetime import datetime, timedelta
