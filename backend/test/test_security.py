@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from main import app
 import time
 
-# Bug #60: Prevent stale test test_aerovhyn.db from contaminating subsequent CI runs
+# Fix for Bug #60: Prevent stale test test_aerovhyn.db from contaminating subsequent CI runs
 @pytest.fixture(autouse=True)
 def setup_db():
     if os.path.exists("test_aerovhyn.db"):
