@@ -796,7 +796,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
         async with db.conn.transaction():
             # Bug #32: Update existing instead of INSERT for paramedics
             # Also update created_at to fix Bug #42 (cleanup loop time reference)
-            await db.execute("""
+            await db.execute('''
                 UPDATE ambulances 
                 SET status = 'en_route',
                     lat = ?, lon = ?,
@@ -807,7 +807,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                     patient_vitals = ?,
                     created_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (
+            ''', (
                 req.ambulance_lat, req.ambulance_lon,
                 severity.level.value,
                 req.vitals.emergency_type.value,
