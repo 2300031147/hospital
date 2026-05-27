@@ -130,6 +130,23 @@ class PostgresDBWrapper:
                 return cursor
             raise
 
+    async def executemany(self, query: str, params_list: list[tuple]):
+        """
+        Execute the same statement with a list of parameter tuples.
+        """
+        if not params_list:
+            return CursorWrapper()
+
+        pg_query, _ = self._to_pg(query, params_list[0])
+        upper = pg_query.strip().upper()
+
+        if "INSERT OR IGNORE" in query.upper() or "INSERT OR IGNORE" in pg_query.upper():
+            if "ON CONFLICT" not in upper:
+                pg_query += " ON CONFLICT DO NOTHING"
+
+        await self.conn.executemany(pg_query, params_list)
+        return CursorWrapper()
+
     async def executescript(self, script: str):
         """Execute a block of SQL statements (DDL only, no params)."""
         await self.conn.execute(script)
@@ -262,6 +279,7 @@ async def seed_data():
         # Seed historical patterns (ON CONFLICT DO NOTHING for idempotency)
         cursor = await db.execute("SELECT id FROM hospitals")
         h_ids = await cursor.fetchall()
+        pattern_params = []
         for idx in h_ids:
             h_id = idx["id"]
             for day in range(7):
@@ -271,16 +289,19 @@ async def seed_data():
                         base_load += 0.2
                     if day >= 5:
                         base_load += 0.1
-                    try:
-                        await db.execute(
-                            """INSERT INTO historical_patterns
-                               (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate)
-                               VALUES (?, ?, ?, ?, ?)
-                               ON CONFLICT (hospital_id, day_of_week, hour_of_day) DO NOTHING""",
-                            (h_id, day, hour, min(base_load, 1.0), 0.05)
-                        )
-                    except Exception:
-                        pass
+                    pattern_params.append((h_id, day, hour, min(base_load, 1.0), 0.05))
+
+        if pattern_params:
+            try:
+                await db.executemany(
+                    """INSERT INTO historical_patterns
+                       (hospital_id, day_of_week, hour_of_day, avg_load, avg_turnover_rate)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT (hospital_id, day_of_week, hour_of_day) DO NOTHING""",
+                    pattern_params
+                )
+            except Exception:
+                pass
 
         await db.commit()
     finally:
