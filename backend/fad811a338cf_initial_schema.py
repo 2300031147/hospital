@@ -67,7 +67,7 @@ def upgrade() -> None:
         sa.Column('role', sa.String(), nullable=False, server_default="'paramedic'"),
         # BUG-5/57 FIX: Integer FK instead of String/Text
         sa.Column('ambulance_id', sa.Integer(), sa.ForeignKey('ambulances.id'), nullable=True),
-        sa.Column('hospital_id', sa.Integer(), nullable=True),
+        sa.Column('hospital_id', sa.Integer(), sa.ForeignKey('hospitals.id'), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('NOW()')),
     )
 
