@@ -6,6 +6,7 @@ Schema is managed by Alembic migrations — run `alembic upgrade head` on first 
 
 import json
 import asyncpg
+import aiosqlite
 import os
 import asyncio
 from passlib.context import CryptContext
@@ -43,6 +44,25 @@ class CursorWrapper:
 
     async def fetchall(self):
         return self.rows
+
+
+class SQLiteDBWrapper:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def execute(self, query: str, params: tuple = ()):
+        cursor = await self.conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return CursorWrapper(rows=list(rows), lastrowid=cursor.lastrowid)
+
+    async def executescript(self, script: str):
+        await self.conn.executescript(script)
+
+    async def commit(self):
+        await self.conn.commit()
+
+    async def close(self):
+        await self.conn.close()
 
 
 class PostgresDBWrapper:
@@ -153,9 +173,18 @@ _pg_pool: asyncpg.Pool | None = None
 _pool_lock = asyncio.Lock()
 
 
-async def get_db() -> PostgresDBWrapper:
-    """Acquire a connection from the asyncpg pool. Caller MUST call db.close()."""
+async def get_db():
+    """Acquire a connection from the pool (Postgres) or connect to SQLite."""
     global _pg_pool
+    
+    use_sqlite = os.getenv("USE_SQLITE", "true").lower() == "true"
+    
+    if use_sqlite:
+        db_path = os.getenv("AEROVHYN_DB_PATH", "aerovhyn.db")
+        conn = await aiosqlite.connect(db_path)
+        conn.row_factory = aiosqlite.Row
+        return SQLiteDBWrapper(conn)
+        
     if not DATABASE_URL:
         raise RuntimeError(
             "DATABASE_URL environment variable is not set. "

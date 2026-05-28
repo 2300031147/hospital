@@ -1,76 +1,50 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: aerovhyn_postgres
-    environment:
-      POSTGRES_DB: aerovhyn
-      POSTGRES_USER: aerovhyn
-      # SECURITY: No default fallback — POSTGRES_PASSWORD must be set in .env or environment
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    # SECURITY: Only expose DB port in development; remove or comment out for production
-    # ports:
-    #   - "5432:5432"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aerovhyn -d aerovhyn"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - data
-
-  redis:
-    image: redis:7-alpine
-    container_name: aerovhyn_redis
-    # SECURITY: Only expose Redis port in development; remove or comment out for production
-    # ports:
-    #   - "6379:6379"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - data
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: aerovhyn_backend
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
-      # SECURITY: No default fallback — AEROVHYN_JWT_SECRET must be set in .env or environment
-      # Generate with: openssl rand -hex 32
-      - AEROVHYN_JWT_SECRET=${AEROVHYN_JWT_SECRET:?AEROVHYN_JWT_SECRET must be set}
-      - DATABASE_URL=postgresql://aerovhyn:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/aerovhyn
-      - REDIS_URL=redis://redis:6379
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      - USE_SQLITE=true
+      - AEROVHYN_DB_PATH=aerovhyn.db
+      - AEROVHYN_JWT_SECRET=8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:5174
     ports:
       - "8000:8000"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
     networks:
-      - data
+      - app-network
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: aerovhyn_admin
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
+      - VITE_BACKEND_WS_URL=ws://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
       - backend
+    networks:
+      - app-network
+
+  hospital:
+    build:
+      context: ./hospital
+      dockerfile: Dockerfile
+    container_name: aerovhyn_hospital
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
+      - VITE_BACKEND_WS_URL=ws://backend:8000
+    ports:
+      - "5174:5174"
+    depends_on:
+      - backend
+    networks:
+      - app-network
 
 networks:
-  data:
+  app-network:
     driver: bridge
-  backend:
-    driver: bridge
-
-volumes:
-  pg_data:

@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column('max_capacity', sa.Integer(), server_default='100'),
         sa.Column('equipment_score', sa.Float(), server_default='0.8'),
         sa.Column('status', sa.String(), server_default="'active'"),
-        sa.Column('last_updated', sa.DateTime(), server_default=sa.text('NOW()')),
+        sa.Column('last_updated', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
     )
 
     op.create_table(
@@ -55,7 +55,7 @@ def upgrade() -> None:
         sa.Column('status', sa.String(), server_default="'idle'"),
         sa.Column('patient_vitals', sa.Text(), server_default="'{}'"),
         sa.Column('eta_minutes', sa.Float(), server_default='0'),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.text('NOW()')),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
     )
 
     op.create_table(
@@ -68,13 +68,13 @@ def upgrade() -> None:
         # BUG-5/57 FIX: Integer FK instead of String/Text
         sa.Column('ambulance_id', sa.Integer(), sa.ForeignKey('ambulances.id'), nullable=True),
         sa.Column('hospital_id', sa.Integer(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.text('NOW()')),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
     )
 
     op.create_table(
         'logs',
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column('timestamp', sa.DateTime(), server_default=sa.text('NOW()')),
+        sa.Column('timestamp', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
         sa.Column('event_type', sa.String(), nullable=False),
         sa.Column('ambulance_id', sa.Integer(), sa.ForeignKey('ambulances.id'), nullable=True),
         sa.Column('hospital_selected_id', sa.Integer(), sa.ForeignKey('hospitals.id'), nullable=True),
