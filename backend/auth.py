@@ -73,7 +73,6 @@ async def verify_token(request: Request) -> TokenData:
         ambulance_id: Optional[int] = payload.get("ambulance_id")
         user_id: Optional[int] = payload.get("user_id")
         
-        # Bug #56: Check user existence in DB to instantly revoke deleted users
         from database import get_db
         db = await get_db()
         try:
