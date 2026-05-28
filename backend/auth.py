@@ -67,7 +67,7 @@ async def verify_token(request: Request) -> TokenData:
     # 2. If no token from cookie, check the Authorization header
     if not token:
         auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
+        if auth_header and auth_header.startswith('Bearer '):
             # Bug #40: Use slice instead of split to handle extra spaces robustly
             token = auth_header[7:].strip()
             
