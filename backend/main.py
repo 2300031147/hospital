@@ -1101,7 +1101,7 @@ async def complete_ambulance_run(ambulance_id: int, token=Depends(require_parame
         # Bug #37: Release bed if critical run is completing
         # Ensured atomic execution with ambulance status update
         async with db.conn.transaction():
-            if amb and amb["patient_severity"] == "critical" and amb["destination_hospital_id"]:
+            if amb is not None and amb["patient_severity"] == "critical" and amb["destination_hospital_id"] is not None:
                 await release_bed(amb["destination_hospital_id"], db=db)
 
             await db.execute("""
