@@ -43,7 +43,7 @@ from engine import classify_severity, rank_hospitals, haversine_distance, comput
 from websocket_manager import manager
 from audit_log import init_blockchain_table, add_block, get_chain, verify_chain
 from notification_service import dispatch_critical_alerts
-from auth import require_hospital_admin, require_paramedic, require_command_center, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, TokenData
+from auth import require_hospital_admin, require_paramedic, require_command_center, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, TokenData, authenticate_user
 from middleware import RequestIDMiddleware, RequestTimingMiddleware, RequestLoggingMiddleware, GlobalExceptionMiddleware, SecurityHeadersMiddleware
 from cache import cache
 from logger import get_logger
@@ -108,43 +108,47 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-@app.post("/api/auth/token")
-@limiter.limit("5/minute")
-async def login_for_access_token(req: LoginRequest, request: Request, response: Response):
-    """
-    Authenticate an ambulance crew member (paramedic/driver).
-    Returns a JWT access token on success.
-    """
+class LoginRateLimiter:
+    def __init__(self, client_ip: str, failed_count: int):
+        self.client_ip = client_ip
+        self.rate_limit_key = f"failed_logins:{client_ip}"
+        self.failed_count = failed_count
+
+    async def record_failure(self):
+        await cache.set(self.rate_limit_key, self.failed_count + 1, ttl=300)
+
+    async def record_success(self):
+        await cache.delete(self.rate_limit_key)
+
+async def get_login_rate_limiter(request: Request):
     client_ip = request.client.host if request.client else "127.0.0.1"
-    
-    # Rate Limiting: max 5 failed attempts per 5 minutes using Redis via cache abstraction
     rate_limit_key = f"failed_logins:{client_ip}"
     failed_count = await cache.get(rate_limit_key) or 0
-    
     if failed_count >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please try again later."
         )
+    return LoginRateLimiter(client_ip, failed_count)
 
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM users WHERE username = ?", (req.username,))
-        user = await cursor.fetchone()
-    finally:
-        await db.close()
+@app.post("/api/auth/token")
+@limiter.limit("5/minute")
+async def login_for_access_token(req: LoginRequest, request: Request, response: Response, rate_limiter: LoginRateLimiter = Depends(get_login_rate_limiter)):
+    """
+    Authenticate an ambulance crew member (paramedic/driver).
+    Returns a JWT access token on success.
+    """
+    user = await authenticate_user(req.username, req.password)
 
-    if not user or not verify_password(req.password, user["password_hash"]):
-        # Increment failed count with a rolling 5-minute TTL
-        await cache.set(rate_limit_key, failed_count + 1, ttl=300)
+    if not user:
+        await rate_limiter.record_failure()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Success: clear failed attempts footprint
-    await cache.delete(rate_limit_key)
+    await rate_limiter.record_success()
 
     # Bug #57 Side Effect: user["ambulance_id"] is already an integer PK now
     ambulance_db_id = user["ambulance_id"] if user["role"] == "paramedic" else None

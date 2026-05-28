@@ -26,6 +26,18 @@ class TokenData(BaseModel):
     ambulance_id: Optional[int] = None
     user_id: Optional[int] = None
 
+async def authenticate_user(username: str, password: str):
+    from database import get_db, verify_password
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = await cursor.fetchone()
+    finally:
+        await db.close()
+    if not user or not verify_password(password, user["password_hash"]):
+        return None
+    return user
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
