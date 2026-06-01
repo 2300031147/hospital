@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getSettings, updateSettings } from '../services/api';
 
@@ -7,6 +7,11 @@ export default function SettingsPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+    const timeoutRef = useRef(null);
+
+    useEffect(() => {
+        return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+    }, []);
 
     useEffect(() => {
         (async () => {
@@ -20,7 +25,8 @@ export default function SettingsPage() {
         try {
             await updateSettings(settings);
             setSaved(true);
-            setTimeout(() => setSaved(false), 3000);
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            timeoutRef.current = setTimeout(() => setSaved(false), 3000);
         } catch (e) { toast.error(e.message); }
         finally { setSaving(false); }
     };

@@ -41,16 +41,14 @@ class AsyncTTLCache:
                     return json.loads(val)
                 return None
             except Exception as e:
-                # Fallback to memory on Redis error for Bug #36
                 log.warning("Redis GET failed, falling back to memory", extra={"error": str(e), "key": key})
-        else:
-            if key in self._store:
-                value, expires_at = self._store[key]
-                if time.time() < expires_at:
-                    return value
-                else:
-                    del self._store[key]
-            return None
+        if key in self._store:
+            value, expires_at = self._store[key]
+            if time.time() < expires_at:
+                return value
+            else:
+                del self._store[key]
+        return None
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None):
         """Set value with TTL (seconds)."""
@@ -58,12 +56,11 @@ class AsyncTTLCache:
         if self._redis:
             try:
                 await self._redis.set(key, json.dumps(value), ex=expiry_sec)
-                # We still set to memory as fallback/backup
             except Exception as e:
                 log.warning("Redis SET failed, falling back to memory", extra={"error": str(e), "key": key})
-        else:
-            expiry = time.time() + expiry_sec
-            self._store[key] = (value, expiry)
+        # Always store in-memory as fallback
+        expiry = time.time() + expiry_sec
+        self._store[key] = (value, expiry)
 
     async def delete(self, key: str):
         """Delete a key from the cache."""
@@ -72,8 +69,7 @@ class AsyncTTLCache:
                 await self._redis.delete(key)
             except Exception as e:
                 log.warning("Redis DELETE failed", extra={"error": str(e), "key": key})
-        else:
-            self._store.pop(key, None)
+        self._store.pop(key, None)
 
     async def invalidate_prefix(self, prefix: str):
         """Delete all keys matching a prefix."""
@@ -93,8 +89,7 @@ class AsyncTTLCache:
         """Clear all cached data."""
         if self._redis:
             await self._redis.flushdb()
-        else:
-            self._store.clear()
+        self._store.clear()
 
     async def stats(self) -> dict:
         """Return cache statistics."""

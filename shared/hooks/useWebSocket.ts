@@ -5,7 +5,10 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/updates`;
+function getWsUrl(): string {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.host}/ws/updates`;
+}
 
 export default function useWebSocket() {
     const [connected, setConnected] = useState(false);
@@ -24,10 +27,10 @@ export default function useWebSocket() {
     }, []);
 
     const connect = useCallback(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) return;
+        if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
         try {
-            const ws = new WebSocket(WS_URL);
+            const ws = new WebSocket(getWsUrl());
             wsRef.current = ws;
 
             ws.onopen = () => {
@@ -76,6 +79,9 @@ export default function useWebSocket() {
             };
         } catch (e) {
             console.error('[WS] Connection failed:', e);
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 15000);
+            reconnectAttemptRef.current += 1;
+            reconnectTimerRef.current = setTimeout(connect, delay);
         }
     }, []);
 

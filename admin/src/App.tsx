@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useWebSocket } from 'shared';
 import LoginPage from './pages/LoginPage';
@@ -60,6 +60,8 @@ function AppContent() {
 
     const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
+    const wsValue = useMemo(() => ({ connected, on }), [connected, on]);
+
     const navItems = user && user.role === 'command_center'
         ? [
             { to: '/command', label: 'Command' },
@@ -111,10 +113,10 @@ function AppContent() {
                 <Routes>
                     <Route path="/login" element={user ? <Navigate to="/command" replace /> : <LoginPage />} />
                     <Route path="/" element={user ? <Navigate to="/command" replace /> : <Navigate to="/login" replace />} />
-                    <Route path="/command" element={<ProtectedRoute><CommandPage ws={{ connected, on }} /></ProtectedRoute>} />
+                    <Route path="/command" element={<ProtectedRoute><CommandPage ws={wsValue} /></ProtectedRoute>} />
                     <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
                     <Route path="/blockchain" element={<ProtectedRoute><BlockchainPage /></ProtectedRoute>} />
-                    <Route path="/hospitals" element={<ProtectedRoute><HospitalsPage ws={{ connected, on }} /></ProtectedRoute>} />
+                    <Route path="/hospitals" element={<ProtectedRoute><HospitalsPage ws={wsValue} /></ProtectedRoute>} />
                     <Route path="/users" element={<ProtectedRoute><UsersPage /></ProtectedRoute>} />
                     <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                     <Route path="/logs" element={<ProtectedRoute><LogsPage /></ProtectedRoute>} />

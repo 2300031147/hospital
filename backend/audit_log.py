@@ -63,17 +63,22 @@ async def add_block(data: dict) -> dict:
     Returns the new block as a dict.
     """
     db = await get_db()
+    is_postgres = False
     try:
         # Serialize chain writes with a Postgres advisory lock to prevent
         # concurrent inserts from creating duplicate idx values.
-        lock_id = hash("audit_chain") % (2**63 - 1)
-        await db.execute("SELECT pg_advisory_lock($1)", (lock_id,))
+        # Only use advisory locks on PostgreSQL (not SQLite).
+        lock_id = 83291047
+        from database import PostgresDBWrapper
+        is_postgres = isinstance(db, PostgresDBWrapper)
+        if is_postgres:
+            await db.execute("SELECT pg_advisory_lock($1)", (lock_id,))
 
         # Get the last block
         cursor = await db.execute("SELECT * FROM blockchain ORDER BY idx DESC LIMIT 1")
         last_row = await cursor.fetchone()
 
-        new_idx = last_row["idx"] + 1
+        new_idx = last_row["idx"] + 1 if last_row else 0
         timestamp = datetime.now(timezone.utc).isoformat()
         data_str = json.dumps(data, sort_keys=True)
         prev_hash = last_row["hash"]
@@ -96,11 +101,11 @@ async def add_block(data: dict) -> dict:
             "hash": block_hash,
         }
     finally:
-        lock_id = hash("audit_chain") % (2**63 - 1)
-        try:
-            await db.execute("SELECT pg_advisory_unlock($1)", (lock_id,))
-        except Exception:
-            pass
+        if is_postgres:
+            try:
+                await db.execute("SELECT pg_advisory_unlock($1)", (lock_id,))
+            except Exception:
+                pass
         await db.close()
 
 

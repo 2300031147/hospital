@@ -53,7 +53,9 @@ class SQLiteDBWrapper:
     async def execute(self, query: str, params: tuple = ()):
         cursor = await self.conn.execute(query, params)
         rows = await cursor.fetchall()
-        return CursorWrapper(rows=list(rows), lastrowid=cursor.lastrowid)
+        wrapper = CursorWrapper(rows=list(rows), lastrowid=cursor.lastrowid)
+        wrapper.rowcount = cursor.rowcount
+        return wrapper
 
     async def executescript(self, script: str):
         await self.conn.executescript(script)
@@ -171,7 +173,10 @@ class PostgresDBWrapper:
 
     async def executescript(self, script: str):
         """Execute a block of SQL statements (DDL only, no params)."""
-        await self.conn.execute(script)
+        for statement in script.split(";"):
+            stmt = statement.strip()
+            if stmt:
+                await self.conn.execute(stmt)
 
     async def commit(self):
         """
@@ -234,8 +239,10 @@ async def init_db():
             ON CONFLICT(id) DO NOTHING
         """)
         await db.commit()
-    except Exception:
-        pass  # Table may not exist yet if Alembic hasn't run — fail gracefully
+    except Exception as e:
+        err_str = str(e).lower()
+        if "does not exist" not in err_str and "no such table" not in err_str:
+            raise
     finally:
         await db.close()
 

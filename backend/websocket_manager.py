@@ -106,7 +106,10 @@ class ConnectionManager:
         """Remove a WebSocket connection."""
         for conn_info in self.active_connections:
             if conn_info["ws"] is websocket:
-                self.active_connections.remove(conn_info)
+                try:
+                    self.active_connections.remove(conn_info)
+                except ValueError:
+                    pass  # Already removed by another path
                 self._metrics["total_disconnects"] += 1
                 log.info(f"WS disconnected", extra={"role": conn_info.get('role', '?'), "username": conn_info.get('username', '?'), "total": len(self.active_connections)})
                 break

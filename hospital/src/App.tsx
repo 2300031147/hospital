@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useWebSocket } from 'shared';
 import LoginPage from './pages/LoginPage';
@@ -52,6 +52,8 @@ function AppContent() {
     }, [theme]);
 
     const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+
+    const wsValue = useMemo(() => ({ connected, on }), [connected, on]);
 
     // Listen for real-time alerts
     useEffect(() => {
@@ -125,7 +127,7 @@ function AppContent() {
                     <Route path="/" element={user ? <Navigate to="/hospital" replace /> : <Navigate to="/login" replace />} />
                     <Route path="/hospital" element={
                         <ProtectedRoute>
-                            <HospitalPage ws={{ connected, on }} user={user} />
+                            <HospitalPage ws={wsValue} user={user} />
                         </ProtectedRoute>
                     } />
                     <Route path="*" element={<Navigate to="/" replace />} />

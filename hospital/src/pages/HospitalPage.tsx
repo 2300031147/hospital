@@ -65,7 +65,10 @@ export default function HospitalPage({ ws, user }) {
             }),
             ws.on('patient_accepted', (data) => {
                 if (data.hospital_id === hospitalId) {
-                    setHospital(prev => ({ ...prev, current_load: prev.current_load + 1, icu_beds: Math.max(0, prev.icu_beds - 1), soft_reserve: Math.max(0, (prev.soft_reserve || 0) - 1) }));
+                    setHospital(prev => {
+                        if (!prev) return prev;
+                        return { ...prev, current_load: prev.current_load + 1, icu_beds: Math.max(0, prev.icu_beds - 1), soft_reserve: Math.max(0, (prev.soft_reserve || 0) - 1) };
+                    });
                     setAmbulances(prev => prev.map(a => a.id === data.ambulance_id ? { ...a, status: 'accepted' } : a));
                 }
             }),
@@ -92,7 +95,6 @@ export default function HospitalPage({ ws, user }) {
             await acceptPatient(hospitalId, ambId);
             setHandoffs(prev => prev.filter(h => h.ambulance_id !== ambId));
             setAmbulances(prev => prev.map(a => a.id === ambId ? { ...a, status: 'accepted' } : a));
-            if (hospital) setHospital({ ...hospital, current_load: hospital.current_load + 1, icu_beds: Math.max(0, hospital.icu_beds - 1), soft_reserve: Math.max(0, (hospital.soft_reserve || 0) - 1) });
         } catch (e) { toast.error(e.message); }
     };
 

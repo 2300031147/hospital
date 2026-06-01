@@ -407,8 +407,9 @@ async def cleanup_stale_reservations_loop():
                         continue
                     try:
                         # created_at is default CURRENT_TIMESTAMP which is UTC in SQLite
-                        created_dt = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
-                        elapsed_mins = (now - created_dt).total_seconds() / 60.0
+                        created_dt = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+                        created_dt_utc = created_dt.replace(tzinfo=None) if created_dt.tzinfo else created_dt
+                        elapsed_mins = (now - created_dt_utc).total_seconds() / 60.0
                         
                         if elapsed_mins > (row["eta_minutes"] + 10):
                             # Timeout exceeded! Release the bed.
@@ -716,6 +717,8 @@ async def update_hospital(hospital_id: int, update: HospitalUpdate, token=Depend
 
         cursor = await db.execute("SELECT * FROM hospitals WHERE id = ?", (hospital_id,))
         row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Hospital not found")
         hospital = row_to_hospital(row)
         await cache.invalidate_prefix("hospitals:")
 
@@ -787,6 +790,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
         raise HTTPException(status_code=404, detail="No available hospitals")
 
     best = ranked[0]
+    original_hospital_id = best.hospital.id
 
     # Check for multi-ambulance conflicts BEFORE reserving the bed
     # We pass 0 as placeholder because we don't have the DB ID yet (INSERT happens below)
@@ -802,7 +806,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     try:
         async with db.conn.transaction():
             # Bug #32: Update existing instead of INSERT for paramedics
-            await db.execute("""
+            result = await db.execute("""
                 UPDATE ambulances 
                 SET status = 'en_route',
                     lat = ?, lon = ?,
@@ -822,6 +826,8 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                 req.vitals.model_dump_json(),
                 current_ambulance_id
             ))
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Ambulance not found")
             ambulance_id = current_ambulance_id
 
             # Check for multi-ambulance conflicts AFTER creating the record
@@ -841,6 +847,8 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
                         "UPDATE ambulances SET destination_hospital_id = ?, eta_minutes = ? WHERE id = ?",
                         (best.hospital.id, best.eta_minutes, ambulance_id)
                     )
+                else:
+                    log.warning(f"Conflict for ambulance #{ambulance_id} but no alternative hospital available")
 
             # Reserve bed at destination hospital only if critical
             bed_reserved = False
@@ -923,7 +931,7 @@ async def route_ambulance(req: RouteRequest, request: Request, background_tasks:
     if conflict_result:
         await manager.broadcast({
             "type": "alert",
-            "message": f"⚡ Conflict resolved: ambulance redistributed from hospital #{best.hospital.id}",
+            "message": f"⚡ Conflict resolved: ambulance redistributed from hospital #{original_hospital_id}",
             "details": conflict_result,
         })
 
@@ -1072,13 +1080,19 @@ async def discharge_patient(hospital_id: int, token=Depends(require_hospital_adm
         
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT current_load FROM hospitals WHERE id = ?", (hospital_id,))
+        cursor = await db.execute("SELECT current_load, icu_beds, soft_reserve FROM hospitals WHERE id = ?", (hospital_id,))
         row = await cursor.fetchone()
         
-        if row and row["current_load"] > 0:
-            # Bug 51: Restore icu_beds when a patient cycles out
-            # Release both the physical ICU bed and any stale soft_reserve
-            await db.execute("UPDATE hospitals SET current_load = current_load - 1, icu_beds = icu_beds + 1, soft_reserve = MAX(0, soft_reserve - 1) WHERE id = ?", (hospital_id,))
+        if not row:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+
+        if row["current_load"] > 0:
+            new_load = row["current_load"] - 1
+            new_icu = row["icu_beds"] + 1
+            await db.execute(
+                "UPDATE hospitals SET current_load = ?, icu_beds = ? WHERE id = ?",
+                (new_load, new_icu, hospital_id),
+            )
             await db.commit()
             await cache.invalidate_prefix("hospitals:")
             return {"status": "success", "message": "Patient discharged"}
@@ -1106,12 +1120,9 @@ async def complete_ambulance_run(ambulance_id: int, token=Depends(require_parame
                     detail="You can only complete your own run"
                 )
 
-        # Bug #37: Release bed if critical run is completing
-        # Ensured atomic execution with ambulance status update
+        # Bed lifecycle: reserve_bed → accept_patient (soft_reserve--) → discharge_patient (icu_beds++)
+        # complete_ambulance_run only resets the ambulance; bed release is handled by discharge_patient
         async with db.conn.transaction():
-            if amb is not None and amb["patient_severity"] == "critical" and amb["destination_hospital_id"] is not None:
-                await release_bed(amb["destination_hospital_id"], db=db)
-
             await db.execute("""
                 UPDATE ambulances 
                 SET status = 'idle', 
@@ -1524,18 +1535,17 @@ async def websocket_endpoint(websocket: WebSocket):
                                     finally:
                                         await db.close()
                                     log.debug(f"WS LatLon update for {secure_amb_id}: {lat},{lon}")
+                                    # 2. Broadcast to dashboards only with valid coordinates
+                                    await manager.broadcast({
+                                        "type": "location_update",
+                                        "ambulance_id": secure_amb_id,
+                                        "lat": lat,
+                                        "lon": lon,
+                                    })
                                 else:
                                     log.warning(f"Invalid WS coords range for {secure_amb_id}: {lat},{lon}")
                             else:
                                 log.warning(f"Invalid WS coords types for {secure_amb_id}: {type(lat)},{type(lon)}")
-                            
-                            # 2. Broadcast to dashboards
-                            await manager.broadcast({
-                                "type": "location_update",
-                                "ambulance_id": secure_amb_id,
-                                "lat": lat,
-                                "lon": lon,
-                            })
 
                     # Handle ping messages in JSON format
                     elif msg_type == "ping":
@@ -1544,4 +1554,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 except json.JSONDecodeError:
                     pass
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket)

@@ -1,5 +1,5 @@
 export function LoadBar({ value, max }: { value: number, max: number }) {
-    const pct = Math.min((value / max) * 100, 100);
+    const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
     const barColor = pct > 85 ? "#ef4444" : pct > 65 ? "#f59e0b" : "#22c55e";
 
     return (

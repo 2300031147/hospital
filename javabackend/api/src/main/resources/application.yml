@@ -1,0 +1,101 @@
+spring:
+  application:
+    name: aerovhyn
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aerovhyn
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 5000
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 10000
+
+  jackson:
+    default-property-inclusion: non_null
+    property-naming-strategy: SNAKE_CASE
+
+server:
+  port: ${SERVER_PORT:8000}
+  error:
+    include-message: always
+
+aerovhyn:
+  jwt:
+    secret: ${AEROVHYN_JWT_SECRET:0123456789012345678901234567890123456789012345678901234567890123}
+    expiration-ms: 3600000
+  cors:
+    origins: ${CORS_ORIGINS:http://localhost:5173,http://localhost:5174}
+  osrm:
+    base-url: ${OSRM_BASE_URL:http://router.project-osrm.org}
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID:}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    from-number: ${TWILIO_FROM_NUMBER:+15550000000}
+  fcm:
+    server-key: ${FCM_SERVER_KEY:}
+  routing:
+    ranker: ${AEROVHYN_ROUTING_RANKER:rule}
+
+logging:
+  level:
+    com.aerovhyn: INFO
+    org.springframework.security: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:h2:mem:aerovhyn;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  jpa:
+    show-sql: false
+  logging:
+    level:
+      com.aerovhyn: INFO

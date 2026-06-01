@@ -1,6 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { getHospitals, createHospital, deleteHospital, simulateOverload } from '../services/api';
+
+function DonutGauge({ current, total, color, label }) {
+    const pct = total > 0 ? current / total : 0;
+    const r = 28, cx = 36, cy = 36, circ = 2 * Math.PI * r;
+    return (
+        <div style={{ textAlign: 'center' }}>
+            <svg width="72" height="72" viewBox="0 0 72 72">
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--color-bg-tertiary)" strokeWidth="6" />
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="6"
+                    strokeDasharray={`${pct * circ} ${circ}`} strokeLinecap="round"
+                    transform={`rotate(-90 ${cx} ${cy})`} style={{ transition: 'stroke-dasharray 0.5s ease' }} />
+                <text x={cx} y={cy - 3} textAnchor="middle" fill="var(--color-text-primary)" fontSize="13" fontWeight="800">{current}</text>
+                <text x={cx} y={cy + 10} textAnchor="middle" fill="var(--color-text-muted)" fontSize="8">/{total}</text>
+            </svg>
+            <div style={{ fontSize: 9, color: 'var(--color-text-muted)', fontWeight: 600, marginTop: 2 }}>{label}</div>
+        </div>
+    );
+}
 
 export default function HospitalsPage({ ws }) {
     const [hospitals, setHospitals] = useState([]);
@@ -36,24 +54,6 @@ export default function HospitalsPage({ ws }) {
 
     const handleOverload = async (id) => {
         try { await simulateOverload(id); fetchData(); } catch (e) { toast.error(e.message); }
-    };
-
-    const DonutGauge = ({ current, total, color, label }) => {
-        const pct = total > 0 ? current / total : 0;
-        const r = 28, cx = 36, cy = 36, circ = 2 * Math.PI * r;
-        return (
-            <div style={{ textAlign: 'center' }}>
-                <svg width="72" height="72" viewBox="0 0 72 72">
-                    <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--color-bg-tertiary)" strokeWidth="6" />
-                    <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="6"
-                        strokeDasharray={`${pct * circ} ${circ}`} strokeLinecap="round"
-                        transform={`rotate(-90 ${cx} ${cy})`} style={{ transition: 'stroke-dasharray 0.5s ease' }} />
-                    <text x={cx} y={cy - 3} textAnchor="middle" fill="var(--color-text-primary)" fontSize="13" fontWeight="800">{current}</text>
-                    <text x={cx} y={cy + 10} textAnchor="middle" fill="var(--color-text-muted)" fontSize="8">/{total}</text>
-                </svg>
-                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', fontWeight: 600, marginTop: 2 }}>{label}</div>
-            </div>
-        );
     };
 
     if (loading) return <div className="page fade-in"><p style={{ color: 'var(--color-text-muted)' }}>Loading hospitals...</p></div>;

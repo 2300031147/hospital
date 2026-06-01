@@ -157,7 +157,9 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
     # Simulating the Historical fetch based on current ETA and time
     # (In a true prod environment, this could involve an async call before engine ranking. 
     # For Engine performance, we use a predictive weighting heuristic based on time of day).
-    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    from datetime import timezone
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(IST)
     current_hour = now_ist.hour
     is_weekend = now_ist.weekday() >= 5
     
@@ -201,9 +203,11 @@ def compute_readiness(hospital: HospitalInfo, severity_level: SeverityLevel, eme
             if isinstance(hospital.last_updated, datetime):
                 last_updated_dt = hospital.last_updated
             else:
-                last_updated_dt = datetime.strptime(str(hospital.last_updated), "%Y-%m-%d %H:%M:%S")
+                last_updated_dt = datetime.fromisoformat(str(hospital.last_updated).replace("Z", "+00:00"))
             
-            now = datetime.utcnow()
+            now = datetime.now(IST)
+            if last_updated_dt.tzinfo is None:
+                last_updated_dt = last_updated_dt.replace(tzinfo=IST)
             diff_minutes = (now - last_updated_dt).total_seconds() / 60.0
             if diff_minutes > 30:
                 readiness *= 0.8  # 20% penalty for stale data
