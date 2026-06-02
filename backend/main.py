@@ -150,7 +150,6 @@ async def login_for_access_token(req: LoginRequest, request: Request, response: 
 
     await rate_limiter.record_success()
 
-    # Bug #57 Side Effect: user["ambulance_id"] is already an integer PK now
     ambulance_db_id = user["ambulance_id"] if user["role"] == "paramedic" else None
 
     access_token = create_access_token(

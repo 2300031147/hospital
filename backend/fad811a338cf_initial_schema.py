@@ -8,7 +8,7 @@ BUG-7 FIX: Previous migration only had ALTER TABLE statements which require
 tables to already exist. Replaced with full CREATE TABLE IF NOT EXISTS so
 this works on a fresh PostgreSQL instance.
 
-Also includes ambulance_id as Integer FK (not String) per Bug #57 fix.
+Also includes ambulance_id as Integer FK (not String).
 """
 from typing import Sequence, Union
 from alembic import op
