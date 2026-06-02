@@ -95,7 +95,7 @@ class AsyncTTLCache:
         """Return cache statistics."""
         if self._redis:
             # Bug #62: Only request the chunk of Redis Info we need to save bandwidth and CPU
-            info = await self._redis.info("memory")
+            info = await self._redis.info('memory')
             dbsize = await self._redis.dbsize()
             return {
                 "total_keys": dbsize,
