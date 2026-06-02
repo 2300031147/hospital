@@ -1336,7 +1336,7 @@ async def simulate_overload(hospital_id: int, token=Depends(require_command_cent
 
         # Bug 52: Clear soft_reserve on simulated overload to prevent negative TOCTOU
         await db.execute(
-            "UPDATE hospitals SET current_load = ?, icu_beds = 0, soft_reserve = 0 WHERE id = ?",
+            'UPDATE hospitals SET current_load = ?, icu_beds = 0, soft_reserve = 0 WHERE id = ?',
             (overloaded, hospital_id),
         )
         await db.commit()
