@@ -78,6 +78,7 @@ class ConnectionManager:
         # Bug #61: Limit unhandled websocket spawns
         MAX_WS_CONNECTIONS = int(os.getenv("MAX_WS_CONNECTIONS", "500"))
         if len(self.active_connections) >= MAX_WS_CONNECTIONS:
+            await websocket.accept()
             await websocket.close(code=1008, reason="Connection limit reached")
             return
 
