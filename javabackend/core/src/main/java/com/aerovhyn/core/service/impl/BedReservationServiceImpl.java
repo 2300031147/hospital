@@ -10,6 +10,7 @@ import com.aerovhyn.domain.entity.LogEntity;
 import com.aerovhyn.domain.repository.HospitalRepository;
 import com.aerovhyn.domain.repository.AmbulanceRepository;
 import com.aerovhyn.domain.repository.LogRepository;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -48,24 +49,23 @@ public class BedReservationServiceImpl implements BedReservationService {
     @Override
     @Transactional
     public boolean softReserve(Long hospitalId, Long ambulanceId) {
-        HospitalEntity hospital = hospitalRepository.findById(hospitalId).orElse(null);
-        if (hospital == null || hospital.getIcuBeds() <= 0) {
-            return false;
-        }
-
         String key = RESERVATION_KEY_PREFIX + hospitalId + ":" + ambulanceId;
         Boolean success = redisTemplate.opsForValue().setIfAbsent(key, "reserved",
                 java.time.Duration.ofMinutes(RESERVATION_TTL_MINUTES));
 
         if (Boolean.TRUE.equals(success)) {
-            hospital.setIcuBeds(hospital.getIcuBeds() - 1);
-            hospital.setSoftReserve(hospital.getSoftReserve() + 1);
-            hospitalRepository.save(hospital);
-
-            eventPublisher.publishEvent(new BedReservedEvent(
-                    hospitalId, ambulanceId, hospital.getName(),
-                    hospital.getIcuBeds(), hospital.getSoftReserve(), Instant.now()));
-            return true;
+            int updated = hospitalRepository.atomicSoftReserve(hospitalId);
+            if (updated > 0) {
+                HospitalEntity hospital = hospitalRepository.findById(hospitalId).orElse(null);
+                if (hospital != null) {
+                    eventPublisher.publishEvent(new BedReservedEvent(
+                            hospitalId, ambulanceId, hospital.getName(),
+                            hospital.getIcuBeds(), hospital.getSoftReserve(), Instant.now()));
+                }
+                return true;
+            } else {
+                redisTemplate.delete(key);
+            }
         }
         return false;
     }
@@ -84,15 +84,14 @@ public class BedReservationServiceImpl implements BedReservationService {
             redisTemplate.delete(key);
         }
 
-        HospitalEntity hospital = hospitalRepository.findById(hospitalId).orElse(null);
-        if (hospital != null && hospital.getSoftReserve() > 0) {
-            hospital.setIcuBeds(hospital.getIcuBeds() + 1);
-            hospital.setSoftReserve(hospital.getSoftReserve() - 1);
-            hospitalRepository.save(hospital);
-
-            eventPublisher.publishEvent(new BedReleasedEvent(
-                    hospitalId, hospital.getName(),
-                    hospital.getIcuBeds(), hospital.getSoftReserve(), Instant.now()));
+        int updated = hospitalRepository.atomicRelease(hospitalId);
+        if (updated > 0) {
+            HospitalEntity hospital = hospitalRepository.findById(hospitalId).orElse(null);
+            if (hospital != null) {
+                eventPublisher.publishEvent(new BedReleasedEvent(
+                        hospitalId, hospital.getName(),
+                        hospital.getIcuBeds(), hospital.getSoftReserve(), Instant.now()));
+            }
             return true;
         }
         return false;
@@ -104,7 +103,7 @@ public class BedReservationServiceImpl implements BedReservationService {
     public void cleanupStaleReservations() {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         List<AmbulanceEntity> enRouteAmbulances = ambulanceRepository.findAll().stream()
-                .filter(amb -> "en_route".equals(amb.getStatus()))
+                .filter(amb -> AmbulanceStatus.EN_ROUTE.getValue().equals(amb.getStatus()))
                 .toList();
 
         for (AmbulanceEntity amb : enRouteAmbulances) {
@@ -117,7 +116,7 @@ public class BedReservationServiceImpl implements BedReservationService {
 
             if (elapsedMinutes > (etaMinutes + 10.0)) {
                 // Timeout exceeded! Update ambulance status
-                amb.setStatus("timeout");
+                amb.setStatus(AmbulanceStatus.TIMEOUT.getValue());
                 ambulanceRepository.save(amb);
 
                 Long hospitalId = amb.getDestinationHospitalId();

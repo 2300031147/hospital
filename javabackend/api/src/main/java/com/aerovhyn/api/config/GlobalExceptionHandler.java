@@ -56,6 +56,20 @@ public class GlobalExceptionHandler {
         return buildResponse(400, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponseDto> handleHttpMessageNotReadable(
+            org.springframework.http.converter.HttpMessageNotReadableException ex, HttpServletRequest request) {
+        // Unwrap Jackson ValueInstantiationException to find ValidationException
+        Throwable cause = ex.getCause();
+        while (cause != null) {
+            if (cause instanceof AerovhynException ae) {
+                return buildResponse(ae.getStatus(), ae.getMessage(), request);
+            }
+            cause = cause.getCause();
+        }
+        return buildResponse(400, "Invalid request body: " + ex.getMostSpecificCause().getMessage(), request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleGeneral(Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception at {}: {}", request.getRequestURI(), ex.getMessage(), ex);

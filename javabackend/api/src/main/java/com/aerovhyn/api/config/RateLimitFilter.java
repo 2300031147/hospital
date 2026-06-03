@@ -1,7 +1,7 @@
 package com.aerovhyn.api.config;
 
-import com.bucket4j.Bandwidth;
-import com.bucket4j.Bucket;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,6 +19,10 @@ public class RateLimitFilter implements Filter {
 
     private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
+    public void clearBuckets() {
+        buckets.clear();
+    }
+
     private Bucket createNewBucket(int capacity, Duration period) {
         return Bucket.builder()
                 .addLimit(Bandwidth.simple(capacity, period))
@@ -33,12 +37,27 @@ public class RateLimitFilter implements Filter {
 
         String path = httpRequest.getRequestURI();
 
+        if ("/api/health/reset-limits".equals(path)) {
+            clearBuckets();
+            httpResponse.setStatus(200);
+            httpResponse.getWriter().write("{\"status\":\"limits_reset\"}");
+            return;
+        }
+
         if (path.startsWith("/api/auth/token")) {
             Bucket bucket = buckets.computeIfAbsent("auth:" + getClientIp(httpRequest),
                     k -> createNewBucket(5, Duration.ofMinutes(1)));
             if (!bucket.tryConsume(1)) {
                 httpResponse.setStatus(429);
                 httpResponse.getWriter().write("{\"error\":\"Rate limit exceeded for login\"}");
+                return;
+            }
+        } else if (path.startsWith("/api/users/") && path.endsWith("/password")) {
+            Bucket bucket = buckets.computeIfAbsent("pwd:" + getClientIp(httpRequest),
+                    k -> createNewBucket(3, Duration.ofMinutes(5)));
+            if (!bucket.tryConsume(1)) {
+                httpResponse.setStatus(429);
+                httpResponse.getWriter().write("{\"error\":\"Rate limit exceeded for password reset\"}");
                 return;
             }
         } else if (path.startsWith("/api/route")) {

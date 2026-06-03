@@ -1,6 +1,7 @@
 package com.aerovhyn.domain.repository;
 
 import com.aerovhyn.domain.entity.BlockchainEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -15,4 +16,7 @@ public interface BlockchainRepository extends JpaRepository<BlockchainEntity, Lo
     List<BlockchainEntity> findAllByOrderByIdxAsc();
 
     List<BlockchainEntity> findTop50ByOrderByIdxDesc();
+
+    List<BlockchainEntity> findAllByOrderByIdxDesc(Pageable pageable);
 }
+

@@ -42,7 +42,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/token").permitAll()
-                        .requestMatchers("/api/health").permitAll()
+                        .requestMatchers("/api/health", "/api/health/reset-limits").permitAll()
                         .requestMatchers("/ws/updates/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .anyRequest().authenticated()

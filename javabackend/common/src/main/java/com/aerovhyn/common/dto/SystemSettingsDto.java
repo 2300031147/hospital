@@ -11,7 +11,7 @@ public record SystemSettingsDto(
 ) {
     public SystemSettingsDto {
         if (Math.abs(distanceWeight + readinessWeight + severityMatchWeight - 1.0) > 0.01) {
-            throw new IllegalArgumentException("Weights must sum to 1.0");
+            throw new com.aerovhyn.common.exception.ValidationException("Weights must sum to 1.0");
         }
     }
 

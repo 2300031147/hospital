@@ -55,17 +55,6 @@ public class AnalyticsController {
         return blockchainAuditService.verifyChain();
     }
 
-    // Frontend expects /api/blockchain and /api/blockchain/verify
-    @GetMapping("/blockchain")
-    public List<BlockchainBlockDto> getBlockchain(@RequestParam(defaultValue = "50") int limit) {
-        return blockchainAuditService.getChain(limit);
-    }
-
-    @GetMapping("/blockchain/verify")
-    public VerificationResultDto verifyBlockchain() {
-        return blockchainAuditService.verifyChain();
-    }
-
     private Map<String, Object> logToMap(LogEntity log) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", log.getId());

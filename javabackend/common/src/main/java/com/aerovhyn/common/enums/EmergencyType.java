@@ -1,5 +1,6 @@
 package com.aerovhyn.common.enums;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum EmergencyType {
@@ -20,5 +21,15 @@ public enum EmergencyType {
     @JsonValue
     public String getValue() {
         return value;
+    }
+
+    @JsonCreator
+    public static EmergencyType fromValue(String value) {
+        for (EmergencyType type : values()) {
+            if (type.value.equalsIgnoreCase(value)) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("Unknown emergency type: " + value);
     }
 }

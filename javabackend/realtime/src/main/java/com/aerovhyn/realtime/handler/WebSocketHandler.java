@@ -34,6 +34,12 @@ public class WebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        if (sessions.size() >= 500) {
+            log.warn("WS rejected: max connections (500) reached");
+            try { session.close(CloseStatus.SERVICE_OVERLOAD); } catch (IOException e) { /* ignore */ }
+            return;
+        }
+
         String token = extractToken(session);
         if (token != null && jwtTokenProvider.validateToken(token)) {
             String role = jwtTokenProvider.getRole(token);
@@ -116,6 +122,14 @@ public class WebSocketHandler extends TextWebSocketHandler {
     }
 
     public void broadcast(String jsonMessage) {
+        broadcastToLocal(jsonMessage);
+    }
+
+    public void handleRedisMessage(String message) {
+        broadcastToLocal(message);
+    }
+
+    private void broadcastToLocal(String jsonMessage) {
         TextMessage message = new TextMessage(jsonMessage);
         for (WebSocketSession session : sessions.values()) {
             if (session.isOpen()) {
@@ -123,13 +137,26 @@ public class WebSocketHandler extends TextWebSocketHandler {
                     session.sendMessage(message);
                 } catch (IOException e) {
                     log.warn("WS send error to {}: {}", session.getId(), e.getMessage());
+                    sessions.remove(session.getId());
+                    try { session.close(CloseStatus.SERVER_ERROR); } catch (IOException ex) { /* ignore */ }
                 }
+            } else {
+                sessions.remove(session.getId());
             }
         }
     }
 
     public int getConnectionCount() {
         return sessions.size();
+    }
+
+    public void cleanDeadConnections() {
+        for (WebSocketSession session : sessions.values()) {
+            if (!session.isOpen()) {
+                sessions.remove(session.getId());
+                log.info("WS cleaned dead connection: {}", session.getId());
+            }
+        }
     }
 
     private String extractToken(WebSocketSession session) {

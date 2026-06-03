@@ -115,7 +115,7 @@ public class BlockchainAuditServiceImpl implements BlockchainAuditService {
 
     @Override
     public List<BlockchainBlockDto> getChain(int limit) {
-        List<BlockchainEntity> entities = blockchainRepository.findTop50ByOrderByIdxDesc();
+        List<BlockchainEntity> entities = blockchainRepository.findAllByOrderByIdxDesc(org.springframework.data.domain.PageRequest.of(0, limit));
         return entities.stream().map(e -> {
             try {
                 Object data = objectMapper.readValue(e.getData(), Object.class);

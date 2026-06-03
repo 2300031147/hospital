@@ -10,6 +10,8 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = "com.aerovhyn")
+@org.springframework.data.jpa.repository.config.EnableJpaRepositories(basePackages = "com.aerovhyn")
+@org.springframework.boot.autoconfigure.domain.EntityScan(basePackages = "com.aerovhyn")
 @EnableCaching
 @EnableScheduling
 @EnableAsync

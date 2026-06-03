@@ -9,6 +9,7 @@ import com.aerovhyn.common.dto.SeverityResultDto;
 import com.aerovhyn.common.dto.SystemSettingsDto;
 import com.aerovhyn.common.dto.RankedHospitalDto;
 import com.aerovhyn.common.enums.SeverityLevel;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import com.aerovhyn.core.service.HospitalService;
 import com.aerovhyn.core.service.BedReservationService;
 import com.aerovhyn.routing.service.HospitalRanker;
@@ -36,6 +37,9 @@ import java.util.Map;
 @PreAuthorize("hasRole('COMMAND_CENTER')")
 public class SimulationController {
 
+    @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:dev}")
+    private String activeProfile;
+
     private final HospitalService hospitalService;
     private final HospitalRepository hospitalRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -49,6 +53,7 @@ public class SimulationController {
     private final ObjectMapper objectMapper;
     private final com.aerovhyn.api.service.DatabaseSeederService databaseSeederService;
     private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+    private final com.aerovhyn.api.config.RateLimitFilter rateLimitFilter;
 
     public SimulationController(
             HospitalService hospitalService,
@@ -63,7 +68,8 @@ public class SimulationController {
             SeverityClassifier severityClassifier,
             ObjectMapper objectMapper,
             com.aerovhyn.api.service.DatabaseSeederService databaseSeederService,
-            org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
+            org.springframework.data.redis.core.StringRedisTemplate redisTemplate,
+            com.aerovhyn.api.config.RateLimitFilter rateLimitFilter) {
         this.hospitalService = hospitalService;
         this.hospitalRepository = hospitalRepository;
         this.eventPublisher = eventPublisher;
@@ -77,12 +83,17 @@ public class SimulationController {
         this.objectMapper = objectMapper;
         this.databaseSeederService = databaseSeederService;
         this.redisTemplate = redisTemplate;
+        this.rateLimitFilter = rateLimitFilter;
     }
 
     @PostMapping("/overload/{hospitalId}")
     public Map<String, String> simulateOverload(@PathVariable Long hospitalId) {
+        if (activeProfile != null && activeProfile.contains("prod")) {
+            throw new com.aerovhyn.common.exception.AerovhynException("Simulation disabled in production", 403);
+        }
+
         var hospital = hospitalService.getById(hospitalId);
-        int maxCapacity = hospital.maxCapacity() != null ? hospital.maxCapacity() : 100;
+        int maxCapacity = hospital.maxCapacity() > 0 ? hospital.maxCapacity() : 100;
         int overloaded = (int) (maxCapacity * 0.98);
 
         var update = new com.aerovhyn.common.dto.HospitalUpdateDto(
@@ -106,12 +117,15 @@ public class SimulationController {
             checkAndReroute(hospitalId, entity);
         }
 
+        eventPublisher.publishEvent(new com.aerovhyn.common.events.BlockchainAuditEvent(
+                "Simulation overload triggered for " + hospital.name(), Instant.now()));
+
         return Map.of("status", "overloaded", "hospital", hospital.name());
     }
 
     private void checkAndReroute(Long hospitalId, HospitalEntity overloadedHospital) {
         List<AmbulanceEntity> affected = ambulanceRepository.findAll().stream()
-                .filter(amb -> "en_route".equals(amb.getStatus()) && hospitalId.equals(amb.getDestinationHospitalId()))
+                .filter(amb -> AmbulanceStatus.EN_ROUTE.getValue().equals(amb.getStatus()) && hospitalId.equals(amb.getDestinationHospitalId()))
                 .toList();
 
         if (affected.isEmpty()) {
@@ -188,11 +202,18 @@ public class SimulationController {
 
     @PostMapping("/reset")
     public Map<String, String> reset() {
+        if (activeProfile != null && activeProfile.contains("prod")) {
+            throw new com.aerovhyn.common.exception.AerovhynException("Simulation disabled in production", 403);
+        }
+
         databaseSeederService.wipeAndReseed();
         invalidateCache();
+        rateLimitFilter.clearBuckets();
 
         eventPublisher.publishEvent(new AlertEvent(
                 "System data has been reset and seeded to default state.", "info", Instant.now()));
+        eventPublisher.publishEvent(new com.aerovhyn.common.events.BlockchainAuditEvent(
+                "Simulation reset triggered", Instant.now()));
 
         return Map.of("status", "reset");
     }

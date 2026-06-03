@@ -102,7 +102,7 @@ export default function SettingsPage() {
                         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8, letterSpacing: 0.5 }}>SYSTEM INFO</div>
                         {[
                             { label: 'Version', value: 'AEROVHYN v2.1.0' },
-                            { label: 'Backend', value: 'Python FastAPI + SQLite' },
+                            { label: 'Backend', value: 'Java Spring Boot + PostgreSQL' },
                             { label: 'Auth', value: 'JWT + RBAC + Rate Limiting' },
                             { label: 'Encryption', value: 'AES-256 / bcrypt' },
                             { label: 'Audit', value: 'SHA-256 Blockchain' },

@@ -32,6 +32,7 @@ public class CoreController {
     }
 
     @GetMapping("/hospitals")
+    @org.springframework.cache.annotation.Cacheable(value = "hospitals", key = "'all'")
     public List<HospitalInfoDto> getHospitals(@RequestParam(required = false) String status) {
         return hospitalService.getAll(status);
     }

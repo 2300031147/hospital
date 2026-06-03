@@ -6,6 +6,7 @@ import com.aerovhyn.common.dto.RankedHospitalDto;
 import com.aerovhyn.common.dto.SeverityResultDto;
 import com.aerovhyn.common.dto.SystemSettingsDto;
 import com.aerovhyn.common.enums.SeverityLevel;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import com.aerovhyn.common.events.BedConflictResolvedEvent;
 import com.aerovhyn.common.events.RerouteEvent;
 import com.aerovhyn.core.service.BedConflictService;
@@ -70,25 +71,56 @@ public class BedConflictServiceImpl implements BedConflictService {
     @Transactional
     public boolean resolveConflict(Long hospitalId, Long newAmbulanceId, SeverityResultDto newSeverity, double newDistanceKm) {
         List<AmbulanceEntity> conflicting = ambulanceRepository.findByDestinationHospitalId(hospitalId).stream()
-                .filter(a -> "en_route".equals(a.getStatus()) && !a.getId().equals(newAmbulanceId))
+                .filter(a -> AmbulanceStatus.EN_ROUTE.getValue().equals(a.getStatus()) && !a.getId().equals(newAmbulanceId))
                 .toList();
 
         if (conflicting.isEmpty()) return false;
 
+        HospitalEntity targetHosp = hospitalRepository.findById(hospitalId).orElse(null);
+        if (targetHosp == null) return false;
+
         SystemSettingsDto settings = settingsService.getSettings();
         double maxDist = settings.maxRoutingDistanceKm();
-
         double newPriority = newSeverity.score() + (1.0 - Math.min(newDistanceKm / maxDist, 1.0)) * 0.1;
 
+        AmbulanceEntity weakestAmbulance = null;
+        double lowestPriority = Double.MAX_VALUE;
+        SeverityResultDto weakestSeverity = null;
+        PatientVitalsDto weakestVitals = null;
+
+        for (AmbulanceEntity conflict : conflicting) {
+            try {
+                PatientVitalsDto conflictVitals = objectMapper.readValue(conflict.getPatientVitals(), PatientVitalsDto.class);
+                SeverityResultDto conflictSeverity = severityClassifier.classify(conflictVitals);
+                double conflictDistance = haversineDistance(conflict.getLat(), conflict.getLon(), targetHosp.getLat(), targetHosp.getLon());
+                double conflictPriority = conflictSeverity.score() + (1.0 - Math.min(conflictDistance / maxDist, 1.0)) * 0.1;
+
+                if (conflictPriority < lowestPriority) {
+                    lowestPriority = conflictPriority;
+                    weakestAmbulance = conflict;
+                    weakestSeverity = conflictSeverity;
+                    weakestVitals = conflictVitals;
+                }
+            } catch (Exception e) {
+                continue;
+            }
+        }
+
+        if (weakestAmbulance == null) return false;
+
+        if (newPriority <= lowestPriority) {
+            // The new ambulance lost the conflict!
+            return true;
+        }
+
+        // The existing weakest ambulance lost the conflict! Reroute it.
         List<HospitalEntity> allActiveEntities = hospitalRepository.findAllByStatus("active");
         List<HospitalInfoDto> allActiveHospitals = allActiveEntities.stream().map(h -> {
             List<String> specialists = List.of();
             if (h.getSpecialists() != null && !h.getSpecialists().isEmpty()) {
                 try {
                     specialists = objectMapper.readValue(h.getSpecialists(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-                } catch (Exception e) {
-                    // ignore
-                }
+                } catch (Exception e) {}
             }
             return new HospitalInfoDto(
                     h.getId(), h.getName(), h.getLat(), h.getLon(),
@@ -100,79 +132,49 @@ public class BedConflictServiceImpl implements BedConflictService {
             );
         }).toList();
 
-        for (AmbulanceEntity conflict : conflicting) {
-            PatientVitalsDto conflictVitals;
-            try {
-                conflictVitals = objectMapper.readValue(conflict.getPatientVitals(), PatientVitalsDto.class);
-            } catch (Exception e) {
-                continue;
-            }
+        List<RankedHospitalDto> altRanked = hospitalRanker.rank(
+                allActiveHospitals, weakestAmbulance.getLat(), weakestAmbulance.getLon(), weakestSeverity, weakestVitals.emergencyType(), settings);
 
-            SeverityResultDto conflictSeverity = severityClassifier.classify(conflictVitals);
-
-            HospitalEntity targetHosp = allActiveEntities.stream()
-                    .filter(h -> h.getId().equals(hospitalId))
-                    .findFirst().orElse(null);
-
-            double conflictPriority;
-            if (targetHosp != null) {
-                double conflictDistance = haversineDistance(conflict.getLat(), conflict.getLon(), targetHosp.getLat(), targetHosp.getLon());
-                conflictPriority = conflictSeverity.score() + (1.0 - Math.min(conflictDistance / maxDist, 1.0)) * 0.1;
-            } else {
-                conflictPriority = conflictSeverity.score();
-            }
-
-            if (newPriority < conflictPriority) {
-                // The new ambulance lost the conflict!
-                return true;
-            }
-
-            // The existing ambulance lost the conflict! Reroute it.
-            List<RankedHospitalDto> altRanked = hospitalRanker.rank(
-                    allActiveHospitals, conflict.getLat(), conflict.getLon(), conflictSeverity, conflictVitals.emergencyType(), settings);
-
-            RankedHospitalDto alt = null;
-            for (RankedHospitalDto potentialAlt : altRanked) {
-                if (!potentialAlt.hospital().id().equals(hospitalId)) {
-                    if (conflictSeverity.level() == SeverityLevel.CRITICAL) {
-                        boolean reserved = bedReservationService.softReserve(potentialAlt.hospital().id(), conflict.getId());
-                        if (reserved) {
-                            bedReservationService.release(hospitalId, conflict.getId());
-                            alt = potentialAlt;
-                            break;
-                        }
-                    } else {
+        RankedHospitalDto alt = null;
+        for (RankedHospitalDto potentialAlt : altRanked) {
+            if (!potentialAlt.hospital().id().equals(hospitalId)) {
+                if (weakestSeverity.level() == SeverityLevel.CRITICAL) {
+                    boolean reserved = bedReservationService.softReserve(potentialAlt.hospital().id(), weakestAmbulance.getId());
+                    if (reserved) {
+                        bedReservationService.release(hospitalId, weakestAmbulance.getId());
                         alt = potentialAlt;
                         break;
                     }
+                } else {
+                    alt = potentialAlt;
+                    break;
                 }
             }
+        }
 
-            if (alt != null) {
-                conflict.setDestinationHospitalId(alt.hospital().id());
-                conflict.setEtaMinutes(alt.etaMinutes());
-                ambulanceRepository.save(conflict);
+        if (alt != null) {
+            weakestAmbulance.setDestinationHospitalId(alt.hospital().id());
+            weakestAmbulance.setEtaMinutes(alt.etaMinutes());
+            ambulanceRepository.save(weakestAmbulance);
 
-                // Publish conflict resolution events
-                eventPublisher.publishEvent(new BedConflictResolvedEvent(
-                        conflict.getId(), hospitalId, alt.hospital().id(), alt.hospital().name(),
-                        "Higher priority patient incoming", conflictPriority, Instant.now()));
+            eventPublisher.publishEvent(new BedConflictResolvedEvent(
+                    weakestAmbulance.getId(), hospitalId, alt.hospital().id(), alt.hospital().name(),
+                    "Higher priority patient incoming", lowestPriority, Instant.now()));
 
-                eventPublisher.publishEvent(new RerouteEvent(
-                        conflict.getId(), hospitalId, alt.hospital().id(), alt.hospital().name(),
-                        alt.hospital().lat(), alt.hospital().lon(), "conflict_resolution", Instant.now()));
+            eventPublisher.publishEvent(new RerouteEvent(
+                    weakestAmbulance.getId(), hospitalId, alt.hospital().id(), alt.hospital().name(),
+                    alt.hospital().lat(), alt.hospital().lon(), "conflict_resolution", Instant.now()));
 
-                LogEntity logEntry = new LogEntity("conflict_resolved");
-                logEntry.setAmbulanceId(conflict.getId());
-                logEntry.setHospitalSelectedId(alt.hospital().id());
-                logEntry.setScore(alt.finalScore());
-                logEntry.setDetails("Conflict at hospital #" + hospitalId + ", rerouted to " + alt.hospital().name());
-                logEntry.setTimestamp(LocalDateTime.now());
-                logRepository.save(logEntry);
+            LogEntity logEntry = new LogEntity("conflict_resolved");
+            logEntry.setAmbulanceId(weakestAmbulance.getId());
+            logEntry.setHospitalSelectedId(alt.hospital().id());
+            logEntry.setScore(alt.finalScore());
+            logEntry.setDetails("Conflict at hospital #" + hospitalId + ", rerouted to " + alt.hospital().name());
+            logEntry.setTimestamp(LocalDateTime.now());
+            logRepository.save(logEntry);
 
-                log.info("Conflict resolved: ambulance {} rerouted from hospital {} to {}",
-                        conflict.getId(), hospitalId, alt.hospital().id());
-            }
+            log.info("Conflict resolved: ambulance {} rerouted from hospital {} to {}",
+                    weakestAmbulance.getId(), hospitalId, alt.hospital().id());
         }
 
         return false;

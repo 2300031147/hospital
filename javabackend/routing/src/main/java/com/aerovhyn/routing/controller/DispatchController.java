@@ -28,6 +28,9 @@ public class DispatchController {
     @PreAuthorize("hasRole('PARAMEDIC') or hasRole('COMMAND_CENTER') or hasRole('DISPATCHER')")
     public RouteResponseDto route(@RequestBody RouteRequestDto request, HttpServletRequest httpRequest) {
         Long ambulanceId = httpRequest.getAttribute("ambulanceId") instanceof Number n ? n.longValue() : null;
+        if (ambulanceId == null && request.ambulanceId() != null) {
+            ambulanceId = request.ambulanceId();
+        }
         return dispatchService.routeAmbulance(request, ambulanceId);
     }
 

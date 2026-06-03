@@ -5,5 +5,7 @@ import java.util.List;
 public record RouteRequestDto(
         double ambulanceLat,
         double ambulanceLon,
-        PatientVitalsDto vitals
+        PatientVitalsDto vitals,
+        Long ambulanceId
 ) {}
+

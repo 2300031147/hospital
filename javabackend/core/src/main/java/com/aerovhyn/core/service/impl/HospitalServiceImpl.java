@@ -4,6 +4,7 @@ import com.aerovhyn.common.dto.HospitalCreateDto;
 import com.aerovhyn.common.dto.HospitalInfoDto;
 import com.aerovhyn.common.dto.HospitalUpdateDto;
 import com.aerovhyn.common.events.HospitalsUpdatedEvent;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import com.aerovhyn.common.exception.ResourceNotFoundException;
 import com.aerovhyn.common.exception.ValidationException;
 import com.aerovhyn.core.service.HospitalService;
@@ -16,6 +17,7 @@ import com.aerovhyn.domain.entity.HistoricalPatternEntity;
 import com.aerovhyn.domain.repository.HospitalRepository;
 import com.aerovhyn.domain.repository.HistoricalPatternRepository;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,7 +61,7 @@ public class HospitalServiceImpl implements HospitalService {
         if (status != null && !status.isEmpty()) {
             hospitals = hospitalRepository.findAllByStatus(status);
         } else {
-            hospitals = hospitalRepository.findAll();
+            hospitals = hospitalRepository.findAll(Sort.by("name"));
         }
         return hospitals.stream().map(this::toDto).toList();
     }
@@ -159,7 +161,7 @@ public class HospitalServiceImpl implements HospitalService {
 
         // Check for active incoming ambulances — prevent deletion if any
         long activeAmbulances = ambulanceRepository.findByDestinationHospitalId(id).stream()
-                .filter(a -> !"completed".equals(a.getStatus()) && !"idle".equals(a.getStatus()))
+                .filter(a -> !AmbulanceStatus.COMPLETED.getValue().equals(a.getStatus()) && !AmbulanceStatus.IDLE.getValue().equals(a.getStatus()))
                 .count();
         if (activeAmbulances > 0) {
             throw new ValidationException("Cannot delete hospital with active incoming ambulances");

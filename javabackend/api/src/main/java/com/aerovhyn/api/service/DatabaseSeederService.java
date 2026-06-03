@@ -3,6 +3,7 @@ package com.aerovhyn.api.service;
 import com.aerovhyn.domain.entity.*;
 import com.aerovhyn.domain.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,7 @@ public class DatabaseSeederService {
     private final BlockchainRepository blockchainRepository;
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
+    private final EntityManager entityManager;
 
     public DatabaseSeederService(
             UserRepository userRepository,
@@ -35,7 +37,8 @@ public class DatabaseSeederService {
             LogRepository logRepository,
             BlockchainRepository blockchainRepository,
             PasswordEncoder passwordEncoder,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            EntityManager entityManager) {
         this.userRepository = userRepository;
         this.ambulanceRepository = ambulanceRepository;
         this.hospitalRepository = hospitalRepository;
@@ -44,6 +47,7 @@ public class DatabaseSeederService {
         this.blockchainRepository = blockchainRepository;
         this.passwordEncoder = passwordEncoder;
         this.objectMapper = objectMapper;
+        this.entityManager = entityManager;
     }
 
     @Transactional
@@ -77,6 +81,7 @@ public class DatabaseSeederService {
         createUser("paramedic1", "rescue123", "Ravi Kumar", "paramedic", amb1.getId(), null);
         createUser("driver1", "drive123", "Suresh Reddy", "paramedic", amb2.getId(), null);
         createUser("medic01", "medic123", "Priya Sharma", "paramedic", amb3.getId(), null);
+        createUser("dispatcher1", "dispatch123", "Dispatch Operator", "dispatcher", null, null);
 
         // 4. Seed Settings if empty
         // Seeding is already baseline in Flyway (V3), but let's verify settings count
@@ -94,6 +99,14 @@ public class DatabaseSeederService {
         ambulanceRepository.deleteAllInBatch();
         hospitalRepository.deleteAllInBatch();
         blockchainRepository.deleteAllInBatch();
+
+        // Reset sequences so IDs start from 1 again
+        entityManager.createNativeQuery("ALTER SEQUENCE hospitals_id_seq RESTART WITH 1").executeUpdate();
+        entityManager.createNativeQuery("ALTER SEQUENCE ambulances_id_seq RESTART WITH 1").executeUpdate();
+        entityManager.createNativeQuery("ALTER SEQUENCE users_id_seq RESTART WITH 1").executeUpdate();
+        entityManager.createNativeQuery("ALTER SEQUENCE logs_id_seq RESTART WITH 1").executeUpdate();
+        entityManager.createNativeQuery("ALTER SEQUENCE historical_patterns_id_seq RESTART WITH 1").executeUpdate();
+        entityManager.flush();
 
         // Seed clean records
         seed();

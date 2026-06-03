@@ -8,7 +8,8 @@ public enum AmbulanceStatus {
     ACCEPTED("accepted"),
     AT_SCENE("at_scene"),
     TRANSPORTING("transporting"),
-    COMPLETED("completed");
+    COMPLETED("completed"),
+    TIMEOUT("timeout");
 
     private final String value;
 

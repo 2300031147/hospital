@@ -22,16 +22,18 @@ public class WebSocketEventListener {
     private final WebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
     private final HospitalService hospitalService;
+    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
-    public WebSocketEventListener(WebSocketHandler webSocketHandler, ObjectMapper objectMapper, HospitalService hospitalService) {
+    public WebSocketEventListener(WebSocketHandler webSocketHandler, ObjectMapper objectMapper, HospitalService hospitalService, org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
         this.webSocketHandler = webSocketHandler;
         this.objectMapper = objectMapper;
         this.hospitalService = hospitalService;
+        this.redisTemplate = redisTemplate;
     }
 
     private void send(Map<String, Object> message) {
         try {
-            webSocketHandler.broadcast(objectMapper.writeValueAsString(message));
+            redisTemplate.convertAndSend("ws_broadcast", objectMapper.writeValueAsString(message));
         } catch (JsonProcessingException e) {
             log.error("WS broadcast error: {}", e.getMessage());
         }

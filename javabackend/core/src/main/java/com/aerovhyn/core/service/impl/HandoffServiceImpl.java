@@ -3,6 +3,7 @@ package com.aerovhyn.core.service.impl;
 import com.aerovhyn.common.events.AlertEvent;
 import com.aerovhyn.common.events.HandoffCompletedEvent;
 import com.aerovhyn.common.events.PatientAcceptedEvent;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import com.aerovhyn.common.exception.ResourceNotFoundException;
 import com.aerovhyn.common.exception.ValidationException;
 import com.aerovhyn.core.service.BedReservationService;
@@ -53,14 +54,14 @@ public class HandoffServiceImpl implements HandoffService {
         if (ambulance.getDestinationHospitalId() == null || !ambulance.getDestinationHospitalId().equals(hospitalId)) {
             throw new ValidationException("Ambulance is not routed to this hospital");
         }
-        if ("accepted".equals(ambulance.getStatus())) {
+        if (AmbulanceStatus.ACCEPTED.getValue().equals(ambulance.getStatus())) {
             throw new ValidationException("Patient already accepted");
         }
-        if (!"en_route".equals(ambulance.getStatus())) {
+        if (!AmbulanceStatus.EN_ROUTE.getValue().equals(ambulance.getStatus())) {
             throw new ValidationException("Ambulance is not en route");
         }
 
-        ambulance.setStatus("accepted");
+        ambulance.setStatus(AmbulanceStatus.ACCEPTED.getValue());
         ambulanceRepository.save(ambulance);
 
         HospitalEntity hospital = hospitalRepository.findById(hospitalId)
@@ -100,7 +101,7 @@ public class HandoffServiceImpl implements HandoffService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ambulance", ambulanceId));
 
         Long hospitalId = ambulance.getDestinationHospitalId();
-        ambulance.setStatus("idle");
+        ambulance.setStatus(AmbulanceStatus.IDLE.getValue());
         ambulance.setDestinationHospitalId(null);
         ambulance.setPatientSeverity(null);
         ambulance.setEmergencyType(null);

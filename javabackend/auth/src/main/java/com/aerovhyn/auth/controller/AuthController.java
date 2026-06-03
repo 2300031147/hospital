@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -92,7 +93,7 @@ public class AuthController {
                 user.getHospitalId()
         );
 
-        Cookie cookie = new Cookie("access_token", "Bearer " + token);
+        Cookie cookie = new Cookie("access_token", java.net.URLEncoder.encode("Bearer " + token, java.nio.charset.StandardCharsets.UTF_8));
         cookie.setHttpOnly(true);
         cookie.setSecure(cookieSecure);
         cookie.setPath("/");
@@ -155,7 +156,19 @@ public class AuthController {
 
     @PutMapping("/users/{userId}/password")
     @PreAuthorize("hasRole('COMMAND_CENTER')")
-    public void resetPassword(@PathVariable Long userId, @RequestBody java.util.Map<String, String> body) {
+    public void resetPassword(@PathVariable Long userId, @RequestBody java.util.Map<String, String> body,
+                              jakarta.servlet.http.HttpServletRequest servletRequest) {
+        if (redisEnabled) {
+            String clientIp = extractClientIp(servletRequest);
+            String key = "password_reset:" + clientIp;
+            String countStr = redisTemplate.opsForValue().get(key);
+            int count = countStr != null ? Integer.parseInt(countStr) : 0;
+            if (count >= 3) {
+                throw new ValidationException("Too many password reset attempts. Try again in 5 minutes.");
+            }
+            redisTemplate.opsForValue().increment(key);
+            redisTemplate.expire(key, 5, TimeUnit.MINUTES);
+        }
         String newPassword = body.get("new_password");
         if (newPassword == null || newPassword.length() < 8) {
             throw new ValidationException("Password must be at least 8 characters");

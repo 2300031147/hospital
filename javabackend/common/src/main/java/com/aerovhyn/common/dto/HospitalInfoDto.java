@@ -18,4 +18,4 @@ public record HospitalInfoDto(
         double equipmentScore,
         String status,
         String lastUpdated
-) {}
+) implements java.io.Serializable {}

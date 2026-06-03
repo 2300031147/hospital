@@ -1,16 +1,47 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aerovhyn_postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=aerovhyn
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: aerovhyn_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - app-network
+
   backend:
     build:
-      context: ./backend
+      context: ./javabackend
       dockerfile: Dockerfile
     container_name: aerovhyn_backend
     environment:
-      - USE_SQLITE=true
-      - AEROVHYN_DB_PATH=aerovhyn.db
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/aerovhyn
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - AEROVHYN_JWT_SECRET=8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d8a7d
       - CORS_ORIGINS=http://localhost:5173,http://localhost:5174
     ports:
       - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
     restart: unless-stopped
     networks:
       - app-network
@@ -44,6 +75,9 @@ services:
       - backend
     networks:
       - app-network
+
+volumes:
+  pgdata:
 
 networks:
   app-network:

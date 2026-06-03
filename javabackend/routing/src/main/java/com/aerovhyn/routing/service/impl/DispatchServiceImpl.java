@@ -6,6 +6,7 @@ import com.aerovhyn.common.events.CriticalAlertEvent;
 import com.aerovhyn.common.events.HandoffAlertEvent;
 import com.aerovhyn.common.enums.EmergencyType;
 import com.aerovhyn.common.enums.SeverityLevel;
+import com.aerovhyn.common.enums.AmbulanceStatus;
 import com.aerovhyn.common.exception.ResourceNotFoundException;
 import com.aerovhyn.core.service.AmbulanceService;
 import com.aerovhyn.core.service.BedReservationService;
@@ -110,6 +111,18 @@ public class DispatchServiceImpl implements DispatchService {
 
         RankedHospitalDto best = ranked.get(0);
 
+        try {
+            String vitalsJson = objectMapper.writeValueAsString(request.vitals());
+            ambulanceService.updateStatus(ambulanceId, AmbulanceStatus.EN_ROUTE.getValue(), best.hospital().id(),
+                    severity.level().getValue(), request.vitals().emergencyType().getValue(),
+                    vitalsJson, best.etaMinutes());
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize vitals for status update: {}", e.getMessage());
+            ambulanceService.updateStatus(ambulanceId, AmbulanceStatus.EN_ROUTE.getValue(), best.hospital().id(),
+                    severity.level().getValue(), request.vitals().emergencyType().getValue(),
+                    "{}", best.etaMinutes());
+        }
+
         boolean rerouteNew = bedConflictService.resolveConflict(best.hospital().id(), ambulanceId, severity, best.distanceKm());
         if (rerouteNew) {
             if (ranked.size() > 1) {
@@ -154,19 +167,10 @@ public class DispatchServiceImpl implements DispatchService {
                     severity.level().getValue(), best.etaMinutes(), Instant.now()));
         }
 
-        try {
-            String vitalsJson = objectMapper.writeValueAsString(request.vitals());
-            ambulanceService.updateStatus(ambulanceId, "en_route", best.hospital().id(),
-                    severity.level().getValue(), request.vitals().emergencyType().getValue(),
-                    vitalsJson, best.etaMinutes());
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize vitals for status update: {}", e.getMessage());
-            ambulanceService.updateStatus(ambulanceId, "en_route", best.hospital().id(),
-                    severity.level().getValue(), request.vitals().emergencyType().getValue(),
-                    "{}", best.etaMinutes());
-        }
+        eventPublisher.publishEvent(new com.aerovhyn.common.events.BlockchainAuditEvent(
+                "Ambulance " + ambulanceId + " routed to " + best.hospital().name(), Instant.now()));
 
-        return new RouteResponseDto(ambulanceId, severity, ranked, best);
+        return new RouteResponseDto(ambulanceId, severity, ranked, best.hospital());
     }
 
     @Override
