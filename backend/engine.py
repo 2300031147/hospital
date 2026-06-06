@@ -429,7 +429,7 @@ async def rank_hospitals(
             total = s_weight + r_weight + d_weight
             
             # Bug #55: Prevent ZeroDivisionError if command center sets all weights to 0.0
-            if total > 0:
+            if total != 0.0:
                 s_weight, r_weight, d_weight = s_weight/total, r_weight/total, d_weight/total
             else:
                 s_weight, r_weight, d_weight = 0.34, 0.33, 0.33
