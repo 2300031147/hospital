@@ -67,7 +67,11 @@ public class GlobalExceptionHandler {
             }
             cause = cause.getCause();
         }
-        return buildResponse(400, "Invalid request body: " + ex.getMostSpecificCause().getMessage(), request);
+        String msg = ex.getMostSpecificCause().getMessage();
+        if (msg != null) {
+            msg = msg.replaceAll("com\\.aerovhyn\\.[a-zA-Z0-9\\._\\$]+", "DTO");
+        }
+        return buildResponse(400, "Invalid request body: " + msg, request);
     }
 
     @ExceptionHandler(Exception.class)
