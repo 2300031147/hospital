@@ -25,3 +25,9 @@ Thumbs.db
 # Environment
 .env
 *.env.local
+
+# Test and hacking scripts
+pentest.sh
+pentest_advanced.sh
+e2e_test.sh
+
