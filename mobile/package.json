@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@sentry/react-native": "~7.2.0",
-    "expo": "~54.0.33",
+    "expo": "~56.0.9",
     "expo-build-properties": "~1.0.10",
     "expo-constants": "^55.0.7",
     "expo-location": "^19.0.8",
