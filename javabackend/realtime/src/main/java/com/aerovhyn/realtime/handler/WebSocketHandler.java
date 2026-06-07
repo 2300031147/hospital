@@ -44,10 +44,14 @@ public class WebSocketHandler extends TextWebSocketHandler {
         if (token != null && jwtTokenProvider.validateToken(token)) {
             String role = jwtTokenProvider.getRole(token);
             Long ambulanceId = jwtTokenProvider.getAmbulanceId(token);
+            Long hospitalId = jwtTokenProvider.getHospitalId(token);
 
             session.getAttributes().put("role", role);
             if (ambulanceId != null) {
                 session.getAttributes().put("ambulanceId", ambulanceId);
+            }
+            if (hospitalId != null) {
+                session.getAttributes().put("hospitalId", hospitalId);
             }
 
             sessions.put(session.getId(), session);
@@ -130,20 +134,99 @@ public class WebSocketHandler extends TextWebSocketHandler {
     }
 
     private void broadcastToLocal(String jsonMessage) {
+        Map<String, Object> data = null;
+        try {
+            data = objectMapper.readValue(jsonMessage, Map.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse broadcast JSON: {}", e.getMessage());
+        }
+
         TextMessage message = new TextMessage(jsonMessage);
         for (WebSocketSession session : sessions.values()) {
-            if (session.isOpen()) {
-                try {
-                    session.sendMessage(message);
-                } catch (IOException e) {
-                    log.warn("WS send error to {}: {}", session.getId(), e.getMessage());
-                    sessions.remove(session.getId());
-                    try { session.close(CloseStatus.SERVER_ERROR); } catch (IOException ex) { /* ignore */ }
-                }
-            } else {
+            if (!session.isOpen()) {
                 sessions.remove(session.getId());
+                continue;
+            }
+
+            if (data != null && !isAuthorizedForMessage(session, data)) {
+                continue;
+            }
+
+            try {
+                session.sendMessage(message);
+            } catch (IOException e) {
+                log.warn("WS send error to {}: {}", session.getId(), e.getMessage());
+                sessions.remove(session.getId());
+                try { session.close(CloseStatus.SERVER_ERROR); } catch (IOException ex) { /* ignore */ }
             }
         }
+    }
+
+    private boolean isAuthorizedForMessage(WebSocketSession session, Map<String, Object> data) {
+        String role = (String) session.getAttributes().get("role");
+        if (role == null) return false;
+
+        if ("command_center".equalsIgnoreCase(role) || "dispatcher".equalsIgnoreCase(role)) {
+            return true;
+        }
+
+        String type = (String) data.get("type");
+        if ("alert".equals(type)) {
+            return true;
+        }
+
+        if ("paramedic".equalsIgnoreCase(role)) {
+            Long sessionAmbId = (Long) session.getAttributes().get("ambulanceId");
+            if (sessionAmbId == null) return false;
+
+            Object ambIdObj = data.get("ambulance_id");
+            if (ambIdObj instanceof Number) {
+                return sessionAmbId.equals(((Number) ambIdObj).longValue());
+            }
+            Object handoffObj = data.get("handoff");
+            if (handoffObj instanceof Map) {
+                Object subAmbId = ((Map<?, ?>) handoffObj).get("ambulance_id");
+                if (subAmbId instanceof Number) {
+                    return sessionAmbId.equals(((Number) subAmbId).longValue());
+                }
+            }
+            return false;
+        }
+
+        if ("hospital_admin".equalsIgnoreCase(role)) {
+            Long sessionHospId = (Long) session.getAttributes().get("hospitalId");
+            if (sessionHospId == null) return false;
+
+            List<String> hospFields = List.of(
+                "hospital_id", "old_hospital_id", "resolved_hospital_id", "original_hospital_id", "to_hospital"
+            );
+            for (String field : hospFields) {
+                Object val = data.get(field);
+                if (val instanceof Number && sessionHospId.equals(((Number) val).longValue())) {
+                    return true;
+                }
+            }
+
+            Object hospObj = data.get("hospital");
+            if (hospObj instanceof Map) {
+                Object subHospId = ((Map<?, ?>) hospObj).get("id");
+                if (subHospId instanceof Number) {
+                    return sessionHospId.equals(((Number) subHospId).longValue());
+                }
+            }
+
+            Object handoffObj = data.get("handoff");
+            if (handoffObj instanceof Map) {
+                Object subHospId = ((Map<?, ?>) handoffObj).get("hospital_id");
+                if (subHospId instanceof Number) {
+                    return sessionHospId.equals(((Number) subHospId).longValue());
+                }
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     public int getConnectionCount() {

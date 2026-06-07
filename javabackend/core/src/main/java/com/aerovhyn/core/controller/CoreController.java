@@ -32,13 +32,17 @@ public class CoreController {
     }
 
     @GetMapping("/hospitals")
+    @PreAuthorize("hasRole('COMMAND_CENTER') or hasRole('DISPATCHER') or hasRole('PARAMEDIC')")
     @org.springframework.cache.annotation.Cacheable(value = "hospitals", key = "'all'")
     public List<HospitalInfoDto> getHospitals(@RequestParam(required = false) String status) {
         return hospitalService.getAll(status);
     }
 
     @GetMapping("/hospitals/{hospitalId}")
-    public HospitalInfoDto getHospital(@PathVariable Long hospitalId) {
+    public HospitalInfoDto getHospital(
+            @PathVariable Long hospitalId,
+            jakarta.servlet.http.HttpServletRequest request) {
+        checkHospitalReadAccess(hospitalId, request);
         return hospitalService.getById(hospitalId);
     }
 
@@ -183,6 +187,24 @@ public class CoreController {
             Long authenticatedAmbId = (Long) request.getAttribute("ambulanceId");
             if (authenticatedAmbId == null || !authenticatedAmbId.equals(ambulanceId)) {
                 throw new com.aerovhyn.common.exception.AerovhynException("You can only access your own ambulance", 403);
+            }
+        }
+    }
+
+    private void checkHospitalReadAccess(Long hospitalId, jakarta.servlet.http.HttpServletRequest request) {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            throw new com.aerovhyn.common.exception.AerovhynException("Unauthenticated", 401);
+        }
+        boolean isPrivileged = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_COMMAND_CENTER") 
+                            || a.getAuthority().equals("ROLE_DISPATCHER")
+                            || a.getAuthority().equals("ROLE_PARAMEDIC"));
+                            
+        if (!isPrivileged) {
+            Long authenticatedHospId = (Long) request.getAttribute("hospitalId");
+            if (authenticatedHospId == null || !authenticatedHospId.equals(hospitalId)) {
+                throw new com.aerovhyn.common.exception.AerovhynException("Not authorized to view this hospital", 403);
             }
         }
     }

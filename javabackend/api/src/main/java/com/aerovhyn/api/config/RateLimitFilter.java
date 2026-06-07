@@ -38,8 +38,16 @@ public class RateLimitFilter implements Filter {
         String path = httpRequest.getRequestURI();
 
         if ("/api/health/reset-limits".equals(path)) {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (auth == null || auth.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_COMMAND_CENTER"))) {
+                httpResponse.setStatus(403);
+                httpResponse.setContentType("application/json");
+                httpResponse.getWriter().write("{\"error\":\"Access Denied\"}");
+                return;
+            }
             clearBuckets();
             httpResponse.setStatus(200);
+            httpResponse.setContentType("application/json");
             httpResponse.getWriter().write("{\"status\":\"limits_reset\"}");
             return;
         }

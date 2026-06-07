@@ -20,6 +20,7 @@ public class DispatchController {
     }
 
     @PostMapping("/classify")
+    @PreAuthorize("hasRole('PARAMEDIC') or hasRole('COMMAND_CENTER') or hasRole('DISPATCHER')")
     public SeverityResultDto classify(@RequestBody PatientVitalsDto vitals) {
         return dispatchService.classify(vitals);
     }
@@ -27,10 +28,22 @@ public class DispatchController {
     @PostMapping("/route")
     @PreAuthorize("hasRole('PARAMEDIC') or hasRole('COMMAND_CENTER') or hasRole('DISPATCHER')")
     public RouteResponseDto route(@RequestBody RouteRequestDto request, HttpServletRequest httpRequest) {
-        Long ambulanceId = httpRequest.getAttribute("ambulanceId") instanceof Number n ? n.longValue() : null;
-        if (ambulanceId == null && request.ambulanceId() != null) {
-            ambulanceId = request.ambulanceId();
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isParamedic = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_PARAMEDIC"));
+
+        Long tokenAmbId = httpRequest.getAttribute("ambulanceId") instanceof Number n ? n.longValue() : null;
+
+        if (isParamedic) {
+            if (tokenAmbId == null) {
+                throw new com.aerovhyn.common.exception.AerovhynException("Paramedic token missing assigned ambulance_id", 403);
+            }
+            if (request.ambulanceId() != null && !request.ambulanceId().equals(tokenAmbId)) {
+                throw new com.aerovhyn.common.exception.AerovhynException("Paramedics can only request routing for their own assigned ambulance", 403);
+            }
         }
+
+        Long ambulanceId = tokenAmbId != null ? tokenAmbId : request.ambulanceId();
         return dispatchService.routeAmbulance(request, ambulanceId);
     }
 
