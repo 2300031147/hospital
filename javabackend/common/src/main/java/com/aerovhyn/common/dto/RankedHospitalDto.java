@@ -8,4 +8,16 @@ public record RankedHospitalDto(
         double severityMatchScore,
         double distanceKm,
         double etaMinutes
-) {}
+) {
+    public RankedHospitalDto sanitize() {
+        return new RankedHospitalDto(
+            this.hospital() != null ? this.hospital().sanitize() : null,
+            0.0, // finalScore
+            0.0, // readinessScore
+            0.0, // distanceScore
+            0.0, // severityMatchScore
+            this.distanceKm(),
+            this.etaMinutes()
+        );
+    }
+}

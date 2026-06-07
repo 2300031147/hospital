@@ -44,7 +44,11 @@ public class DispatchController {
         }
 
         Long ambulanceId = tokenAmbId != null ? tokenAmbId : request.ambulanceId();
-        return dispatchService.routeAmbulance(request, ambulanceId);
+        RouteResponseDto responseDto = dispatchService.routeAmbulance(request, ambulanceId);
+        if (isParamedic) {
+            return responseDto.sanitize();
+        }
+        return responseDto;
     }
 
     @GetMapping("/settings")

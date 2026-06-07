@@ -56,6 +56,7 @@ public class HospitalServiceImpl implements HospitalService {
     }
 
     @Override
+    @org.springframework.cache.annotation.Cacheable(value = "hospitals", key = "#status ?: 'all'")
     public List<HospitalInfoDto> getAll(String status) {
         List<HospitalEntity> hospitals;
         if (status != null && !status.isEmpty()) {

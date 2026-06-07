@@ -18,4 +18,24 @@ public record HospitalInfoDto(
         double equipmentScore,
         String status,
         String lastUpdated
-) implements java.io.Serializable {}
+) implements java.io.Serializable {
+    public HospitalInfoDto sanitize() {
+        return new HospitalInfoDto(
+            this.id(),
+            this.name(),
+            this.lat(),
+            this.lon(),
+            0, // icuBeds
+            0, // totalIcuBeds
+            0, // softReserve
+            0, // ventilators
+            0, // totalVentilators
+            java.util.List.of(), // specialists
+            0, // currentLoad
+            0, // maxCapacity
+            0.0, // equipmentScore
+            this.status(),
+            null // lastUpdated
+        );
+    }
+}

@@ -33,9 +33,15 @@ public class CoreController {
 
     @GetMapping("/hospitals")
     @PreAuthorize("hasRole('COMMAND_CENTER') or hasRole('DISPATCHER') or hasRole('PARAMEDIC')")
-    @org.springframework.cache.annotation.Cacheable(value = "hospitals", key = "'all'")
     public List<HospitalInfoDto> getHospitals(@RequestParam(required = false) String status) {
-        return hospitalService.getAll(status);
+        List<HospitalInfoDto> list = hospitalService.getAll(status);
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isParamedic = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_PARAMEDIC"));
+        if (isParamedic) {
+            return list.stream().map(HospitalInfoDto::sanitize).toList();
+        }
+        return list;
     }
 
     @GetMapping("/hospitals/{hospitalId}")
