@@ -2,9 +2,17 @@
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import iconRetina from 'leaflet/dist/images/marker-icon-2x.png';
 
 // Fix for default Leaflet icon paths in Vite
 delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: iconRetina,
+    iconUrl: icon,
+    shadowUrl: iconShadow
+});
 
 // Custom SVG Icons
 const createIcon = (svgPath, color) => {
